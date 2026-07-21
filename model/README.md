@@ -23,9 +23,12 @@ vibesentinel_model/
   anomaly.py        IsolationForest train/detect, joblib persistence
   pipeline.py       LogPipeline: batch ingest -> templates -> vectors -> scores
   escalation.py     EscalationTracker: sustained per-source-IP gating + response ladder
+  signatures.py      known-payload regex pre-filter (sqli/xss/traversal/cmdi/recon_probe/
+                      overflow/crlf), URL-decode aware — combined into detect() results
 scripts/
   export_onnx_model.py   one-time model export (run before first use)
   prepare_datasets.py     extracts datasets/*.tar.gz (loghub)
+  fetch_nginx_dataset.py   pulls recent real nginx logs from secrepo.com
   csic_dataset.py          extracts + reconstructs CSIC2010 request lines (real labels)
   heuristics.py            weak eval-only attack labels (never fed into training)
   train_baseline.py       real train+eval on datasets/ (--with-csic for CSIC2010)
@@ -37,6 +40,7 @@ datasets/
 tests/
   test_pipeline.py
   test_escalation.py
+  test_signatures.py
 ```
 
 ## Setup
@@ -49,36 +53,43 @@ python examples/run_demo.py             # sanity check on synthetic logs
 
 ## Training on real data
 
-`datasets/` holds real logs: loghub Apache/Linux/SSH (regex-derived weak labels, eval-only) and CSIC 2010 (real ground-truth `norm`/`anom` labels per request) — see `datasets/SOURCES.md` for provenance. `scripts/train_baseline.py` trains a per-source Isolation Forest and evaluates it:
+`datasets/` holds real logs: loghub Apache/Linux/SSH (regex-derived weak labels, eval-only), Nginx (real secrepo.com traffic, CC-BY 4.0), and CSIC 2010 (real ground-truth `norm`/`anom` labels per request) — see `datasets/SOURCES.md` for provenance. `scripts/train_baseline.py` trains a per-source Isolation Forest and evaluates it:
 
 ```
-python scripts/train_baseline.py
+python scripts/fetch_nginx_dataset.py    # once, pulls real nginx logs
+python scripts/train_baseline.py --with-csic
 ```
 
-Current numbers (contamination=0.05, Drain3 `sim_th=0.4`, no template dedup — trains on raw-line template frequency; `flagged` below is the raw IsolationForest `-1` label, the primary metric, not `severity_score`):
+Current numbers (contamination=0.05, Drain3 `sim_th=0.4`, no template dedup, 3000-line baseline; `flagged` is the raw IsolationForest `-1` label combined with `signatures.py`'s payload pre-filter — the primary metric, not `severity_score` alone):
 
 | Source | Normal false-positive rate | Attack detection rate |
 |---|---|---|
-| Apache | 2% | 86% |
-| Linux | 4% | 82% |
-| SSH | 4% | 46% |
-| CSIC2010 | 3% | 0% (no real separation — see known limitation below) |
+| Apache | 3% | 64% |
+| Linux | 3% | 85% |
+| SSH | 2% | 100% |
+| Nginx | 4% | 100% |
+| CSIC2010 | 2% | 20% (real ground truth, still a gap — see known limitation 2) |
 
 **This is the config to keep.** History: an earlier pass deduped training to unique templates and tightened `sim_th` to 0.65 chasing higher SSH recall, which pushed FP up to 12/8/44% — much worse for a system where a false positive can end in banning a real user. Reverted: `LogPipeline.train()` no longer dedupes (density estimate benefits from knowing how often a template actually recurs in normal traffic), `sim_th` back to 0.4, `contamination` back to 0.05, baseline back to 3000 lines. `EscalationTracker.observe()` gates on the raw `flag` (contamination-calibrated) first, with `severity_score` as a secondary floor — gating on `severity_score` alone was the mechanism that let FP creep up in the tuning detour.
 
-### Known limitation 1: per-line false-positive rate on Apache/Linux/SSH is real, not zero
+Three real bugs surfaced and fixed while chasing these numbers (worth knowing before trusting any future eval run's numbers at face value):
+- **Apache's heuristic eval label was wrong, not the detector.** `heuristics.py`'s apache pattern never caught `cgi-bin/awstats`/`phpmyadmin` probing (a real, well-known exploit-scanning campaign present in that 2005-2006 dataset) — those lines were bucketed as "normal," so the detector correctly flagging them looked like a false-positive spike. Fixed the heuristic; apache's real FP is 3%, not the 8% an earlier run showed.
+- **Signature payloads are routinely URL-encoded** (`%27%3B+DROP+TABLE` for `'; DROP TABLE`, sometimes double-encoded: `%253C` → `%3C` → `<`). `signatures.py` didn't decode before matching, so it barely helped CSIC2010 (2% recall) — fixed with `unquote_plus` applied once and twice before matching.
+- **A shared `random.Random` across all 5 sources made every source's eval sample depend on every *other* source's data.** Fixing apache's heuristic changed how many random calls its shuffle consumed, which silently reshuffled SSH's sample and swung its reported recall from 46% to 9% with zero actual change to SSH. `train_baseline.py` now seeds a fresh `random.Random(f"{SEED}-{target_id}")` per source — each source's numbers are now independent of what other sources' data looks like.
 
-These logs have genuinely heterogeneous "normal" traffic (mixed subsystems, rare one-off messages a fixed-size baseline never sees) — the 2-4% FP above is the best tradeoff found, not zero. SSH's lower recall (46%) is the cost of keeping its FP low: its brute-force traffic and a chunk of its legitimate traffic both reduce to short, generic auth-log templates that sit close together in embedding space, so tightening further to catch more attacks reliably drags normal traffic along with it.
+### Known limitation 1: per-line false-positive rate on Apache/Linux/SSH/Nginx is real, not zero
+
+These logs have genuinely heterogeneous "normal" traffic (mixed subsystems, rare one-off messages a fixed-size baseline never sees) — the 2-4% FP above is the best tradeoff found, not zero.
 
 **This is why `escalation.py` exists and why nothing in this package should gate a destructive action off a single flagged line.** `EscalationTracker` requires `MIN_EVENTS_TO_ESCALATE` (default 4) anomalous hits from the *same source IP* inside a 5-minute window before it even returns an `AttackEvent`, and even reaching the `ban_ip` tier (10+ sustained events, ≥0.85 confidence) is a *recommendation* — per spec Module 7, ban execution itself stays manual-confirm by default regardless of what this package outputs, and any target that opts into auto-ban gets TTL-based, reversible bans. At a 2-4% per-line FP rate, the odds of one legitimate IP racking up 10 sustained flagged events in 5 minutes purely by chance are low; per-line noise gets absorbed before it ever reaches a human, let alone an action.
 
 If a specific target's false-positive rate matters more than these defaults (e.g. tighter compliance environment), calibrate `contamination` and `EscalationTracker`'s thresholds per-target — this should be exposed as the "anomaly-detection sensitivity" Settings knob in spec §3 Module 6, not hardcoded.
 
-### Known limitation 2: CSIC 2010 (real SQLi/XSS/traversal traffic) doesn't separate with this approach
+### Known limitation 2: CSIC 2010 (real SQLi/XSS/traversal traffic) — signature layer closed most of the gap, not all of it
 
-Unlike the other three, CSIC2010's ground truth is real (`norm`/`anom` per HTTP request, not a regex proxy) — and the pipeline still can't tell them apart: at this low-FP config it just flags almost nothing (0% recall alongside the 3% FP above); at higher-sensitivity configs tried earlier it flagged everything roughly equally (both land near 50-95%, i.e. close to random either way). Root cause, diagnosed not guessed: mean-pooled sentence embeddings of a full request line dilute a short injected payload (`<script>alert(1)</script>`) inside otherwise-ordinary form-field text (`login=`, `pwd=`, `remember=on`, real product names) — the whole-line embedding ends up dominated by the ordinary tokens. Tried: fixing Drain3's delimiter set (`&`/`?` weren't delimiters, so query strings were single blobs — fixed, `drain3_config.ini`) and a 20k-line baseline (3x the original) — neither closed the gap.
+CSIC2010's ground truth is real (`norm`/`anom` per HTTP request, not a regex proxy). Original diagnosis: mean-pooled sentence embeddings of a full request line dilute a short injected payload (`<script>alert(1)</script>`) inside otherwise-ordinary form-field text — the whole-line embedding ends up dominated by the ordinary tokens, so the ML layer alone stayed near 0% recall regardless of threshold. Fix: `signatures.py`, a fast regex pre-filter (SQLi, XSS, path traversal, command injection, plus recon-probe paths, overflow/fuzz strings, CRLF injection — 7 categories, URL-decode aware) whose hits force `flag=-1` in `pipeline.detect()`, independent of the ML score. This took CSIC2010 recall from 0% → 20% without moving its FP (2%).
 
-This isn't a call to abandon signature-style detection for SQLi/XSS/traversal — it's evidence that **this specific ML approach (structural/behavioral anomaly detection via IsolationForest) is the wrong tool for payload-content detection**, which is what CSIC2010 actually tests. Recommend a hybrid: keep a fast regex/signature pre-filter for known payload patterns (SQL keywords, script tags, traversal sequences — same philosophy as Module 1's scanner) ahead of or alongside this ML layer, which should focus on what it's actually good at: structural/behavioral drift (brute force, scanning, rare endpoints, volume anomalies) — exactly what Apache/Linux/SSH results above demonstrate it can do. `scripts/csic_dataset.py` (loader, verified against the dataset's published stats: 36k norm / 25k anom) stays in the repo for whoever picks up that signature-layer work; it's just not wired into `train_baseline.py`'s default run (`--with-csic` to include it).
+**Recall ceiling that remains, and why:** CSIC2010's attack set also includes buffer overflow, parameter tampering, and files-disclosure requests that don't reduce to a payload signature — parameter tampering in particular (e.g. changing `precio=85` to `precio=1`) is syntactically identical to a normal request; nothing about the string itself is anomalous, only the business-logic value is wrong. No regex or generic anomaly-embedding approach catches that class — it needs application-level validation (expected-range/type checking on specific fields), which is out of scope for a log-line anomaly detector. `scripts/csic_dataset.py` (verified against the dataset's published 36k/25k stats) stays in the repo, not wired into `train_baseline.py`'s default run (`--with-csic` to include it).
 
 ## Response ladder (alternative to jumping straight to IP ban)
 

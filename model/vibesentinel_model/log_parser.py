@@ -47,13 +47,21 @@ class LogTemplateExtractor:
             raise MalformedLogLine("drain3 produced no template")
         return template
 
-    def extract_batch(self, raw_lines: list[str]) -> tuple[list[str], int]:
-        """Returns (templates, malformed_count). Never raises on a bad individual line."""
+    def extract_batch(self, raw_lines: list[str]) -> tuple[list[str], list[str], int]:
+        """Returns (templates, matched_lines, malformed_count).
+
+        matched_lines[i] is the original raw line that produced templates[i] —
+        preserved so callers can re-check the raw line (e.g. signature
+        matching) against the same positions as the resulting embeddings.
+        Never raises on a bad individual line.
+        """
         templates: list[str] = []
+        matched_lines: list[str] = []
         malformed = 0
         for line in raw_lines:
             try:
                 templates.append(self.extract(line))
+                matched_lines.append(line)
             except MalformedLogLine:
                 malformed += 1
-        return templates, malformed
+        return templates, matched_lines, malformed

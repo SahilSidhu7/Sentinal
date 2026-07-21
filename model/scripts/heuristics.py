@@ -9,7 +9,8 @@ import re
 
 _PATTERNS = {
     "apache": re.compile(
-        r"forbidden by rule|client denied|access denied|authentication required",
+        r"forbidden by rule|client denied|access denied|authentication required|"
+        r"cgi-bin/awstats|cgi-bin/ip\.cgi|phpmyadmin|attempt to invoke directory as script",
         re.IGNORECASE,
     ),
     "linux": re.compile(
@@ -18,6 +19,11 @@ _PATTERNS = {
     ),
     "ssh": re.compile(
         r"Failed password|Invalid user|POSSIBLE BREAK-IN ATTEMPT|input_userauth_request: invalid user",
+        re.IGNORECASE,
+    ),
+    "nginx": re.compile(
+        r"wp-admin|wp-login|xmlrpc\.php|phpmyadmin|\.env\b|\.git/config|\.aws/credentials|"
+        r"\.\./|/etc/passwd|<script|union.{0,20}select|eval\(|base64_decode|/actuator|/console",
         re.IGNORECASE,
     ),
 }

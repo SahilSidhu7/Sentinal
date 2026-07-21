@@ -18,9 +18,10 @@ def test_template_extraction_normalizes_dynamic_values(tmp_path):
 
 def test_extract_batch_skips_malformed_lines(tmp_path):
     extractor = LogTemplateExtractor("test-target", state_dir=tmp_path)
-    templates, malformed = extractor.extract_batch(["", "   ", "GET /health 200"])
+    templates, matched_lines, malformed = extractor.extract_batch(["", "   ", "GET /health 200"])
     assert malformed == 2
     assert len(templates) == 1
+    assert matched_lines == ["GET /health 200"]
 
 
 def test_extract_raises_on_empty_line(tmp_path):

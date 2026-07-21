@@ -7,3 +7,4 @@ __pycache__/
 datasets/*.tar.gz
 datasets/*.zip
 datasets/_extracted/
+datasets/_nginx_raw/

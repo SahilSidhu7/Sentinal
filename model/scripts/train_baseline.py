@@ -1,10 +1,12 @@
 """Train + sanity-eval per-source Isolation Forest models on the datasets in
-datasets/ (Apache, Linux, SSH — loghub; CSIC2010 — real web-attack traffic).
-Real logs, not synthetic — see datasets/SOURCES.md for provenance.
+datasets/ (Apache, Linux, SSH — loghub; Nginx — secrepo.com real traffic;
+CSIC2010 — real web-attack traffic). Real logs, not synthetic — see
+datasets/SOURCES.md for provenance.
 
 Usage: python scripts/train_baseline.py [--baseline-size N] [--eval-size N]
 
 Requires artifacts/all-MiniLM-L6-v2/ (run scripts/export_onnx_model.py first).
+Nginx requires scripts/fetch_nginx_dataset.py to have been run first.
 """
 import argparse
 import logging
@@ -17,6 +19,7 @@ logging.basicConfig(level=logging.INFO, format="  [%(name)s] %(message)s")
 logging.getLogger("drain3").setLevel(logging.WARNING)
 
 from csic_dataset import iter_csic_lines
+from fetch_nginx_dataset import OUT_FILE as NGINX_LOG_PATH
 from heuristics import is_suspicious
 from prepare_datasets import ensure_extracted, iter_lines
 
@@ -65,9 +68,14 @@ def report(label: str, results) -> None:
     )
 
 
-def train_and_eval(target_id: str, normal: list[str], attack: list[str], attack_label: str, args, rng) -> None:
+def train_and_eval(target_id: str, normal: list[str], attack: list[str], attack_label: str, args) -> None:
     print(f"  total lines: normal={len(normal)} {attack_label}={len(attack)}")
 
+    # Per-source seed, not a shared rng advanced across sources: a shared rng
+    # made every source's eval sample sensitive to *every other* source's list
+    # size (e.g. fixing apache's heuristic silently reshuffled ssh's sample
+    # and swung its recall from 46% to 9% with zero change to ssh itself).
+    rng = random.Random(f"{SEED}-{target_id}")
     rng.shuffle(normal)
     baseline = normal[: args.baseline_size]
     normal_eval = normal[args.baseline_size : args.baseline_size + args.eval_size]
@@ -103,18 +111,24 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    rng = random.Random(SEED)
     paths = ensure_extracted()
 
     for source in ["apache", "linux", "ssh"]:
         print(f"\n=== {source} ===")
         normal, attack, attack_label = split_loghub(source, paths[source])
-        train_and_eval(f"loghub-{source}", normal, attack, attack_label, args, rng)
+        train_and_eval(f"loghub-{source}", normal, attack, attack_label, args)
+
+    if NGINX_LOG_PATH.exists():
+        print("\n=== nginx ===")
+        normal, attack, attack_label = split_loghub("nginx", NGINX_LOG_PATH)
+        train_and_eval("nginx", normal, attack, attack_label, args)
+    else:
+        print(f"\n[!] skipping nginx — run scripts/fetch_nginx_dataset.py first ({NGINX_LOG_PATH} not found)")
 
     if args.with_csic:
         print("\n=== csic2010 (experimental, see README.md known limitation) ===")
         normal, attack, attack_label = split_csic()
-        train_and_eval("csic2010", normal, attack, attack_label, args, rng)
+        train_and_eval("csic2010", normal, attack, attack_label, args)
 
 
 if __name__ == "__main__":

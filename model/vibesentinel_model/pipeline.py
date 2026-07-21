@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 
+from . import signatures
 from .anomaly import AnomalyModel, DetectionResult
 from .embedder import TemplateEmbedder
 from .log_parser import LogTemplateExtractor
@@ -38,7 +39,7 @@ class LogPipeline:
         benefits from knowing how often a template actually recurs in normal
         traffic, not just that it occurred at all.
         """
-        templates, malformed = self._templates_for(baseline_log_lines)
+        templates, _, malformed = self._templates_for(baseline_log_lines)
         self.malformed_line_count += malformed
         if not templates:
             raise ValueError("no usable templates extracted from baseline log lines")
@@ -51,16 +52,32 @@ class LogPipeline:
         )
 
     def detect(self, log_lines: list[str]) -> list[DetectionResult]:
-        """Scores a batch of raw log lines. Malformed lines are skipped, not raised."""
-        templates, malformed = self._templates_for(log_lines)
+        """Scores a batch of raw log lines. Malformed lines are skipped, not raised.
+
+        Combines the ML (structural/behavioral) result with a signature
+        pre-filter (payload-content matches — SQLi/XSS/traversal/cmdi, see
+        signatures.py): a signature hit always wins, forcing flag=-1 and a
+        high severity, regardless of what the embedding-based score says.
+        See model/README.md "Known limitation 2" for why the ML layer alone
+        misses payload-content attacks and this combination is the fix.
+        """
+        templates, matched_lines, malformed = self._templates_for(log_lines)
         self.malformed_line_count += malformed
         if not templates:
             return []
 
         embeddings = self._embed_in_batches(templates)
-        return self._anomaly_model.detect(embeddings, templates)
+        results = self._anomaly_model.detect(embeddings, templates)
 
-    def _templates_for(self, log_lines: list[str]) -> tuple[list[str], int]:
+        for i, line in enumerate(matched_lines):
+            sig = signatures.match(line)
+            if sig:
+                results[i].flag = -1
+                results[i].severity_score = max(results[i].severity_score, signatures.SIGNATURE_SEVERITY)
+                results[i].matched_signature = sig.category
+        return results
+
+    def _templates_for(self, log_lines: list[str]) -> tuple[list[str], list[str], int]:
         return self._parser.extract_batch(log_lines)
 
     def _embed_in_batches(self, templates: list[str]):

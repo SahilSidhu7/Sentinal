@@ -30,6 +30,16 @@ Heuristic auth-attack labels (for Apache/Linux/SSH) are for **evaluation sanity-
 
 **Status:** loader works, but the Drain3+MiniLM+IsolationForest pipeline doesn't separate normal from attack traffic on this dataset (~50-95% FP depending on threshold — see `model/README.md` "Known limitation 2" for the diagnosis and why this points to a signature/regex pre-filter, not more ML tuning, as the fix). Not wired into `train_baseline.py`'s default run — use `--with-csic` to include it.
 
+## Nginx (in use, real production traffic, clean license)
+
+Real nginx access logs from `secrepo.com` itself (Mike Sconzo's security-data research site) — genuine production traffic including real WordPress/exploit path-scanning bots (`wp-admin/*`, `xmlrpc.php`, `.env`, `phpmyadmin`, `../` traversal attempts) mixed with legitimate crawlers and visits. This is the actual attack signal we were missing — real scanning traffic against a real Nginx server, not synthetic and not a lab honeypot.
+
+**License:** **Creative Commons Attribution 4.0 International** (stated site-wide at secrepo.com — the cleanest license of anything in this folder; commercial + noncommercial use fine with attribution to Mike Sconzo). Still kept gitignored (`_nginx_raw/`, `_extracted/Nginx/`) per this repo's blanket "don't commit third-party data" policy, but there'd be no license blocker if that policy ever changed for this one specifically.
+
+**How to obtain:** `python scripts/fetch_nginx_dataset.py [--days N]` — pulls the N most recent daily `access.log.YYYY-MM-DD.gz` files from `https://www.secrepo.com/self.logs/` (no signup/auth needed) and concatenates them into `_extracted/Nginx/nginx.log`. Default 90 days (~218k lines as of this writing). The site has daily logs going back to 2015, continuously updated.
+
+**Status:** wired into `train_baseline.py`'s default run (skipped automatically with a clear message if the fetch script hasn't been run yet). Heuristic weak-labels for eval in `scripts/heuristics.py`'s `"nginx"` pattern (WordPress/exploit-probe path signatures).
+
 ## Other datasets researched, not pulled in
 
 1. **Morzeux/HttpParamsDataset (GitHub)** — smaller, focused: benign vs. attack payload strings (SQLi, XSS, command injection, path traversal) meant to be dropped into HTTP param values. Good fit for a future signature/regex pre-filter's test fixtures (see CSIC2010 status above), not for this package's embedding approach.

@@ -16,6 +16,7 @@ class DetectionResult:
     template: str
     flag: int  # -1 = anomalous, 1 = normal (raw IsolationForest label)
     severity_score: float  # normalized 0.0-1.0, higher = more anomalous
+    matched_signature: str | None = None  # e.g. "sqli" — see signatures.py; None if ML-only
 
 
 class AnomalyModel:
