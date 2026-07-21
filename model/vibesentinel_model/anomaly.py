@@ -26,6 +26,7 @@ class AnomalyModel:
         self._model_dir = Path(model_dir)
         self._model_dir.mkdir(parents=True, exist_ok=True)
         self._forest: IsolationForest | None = None
+        self._train_scores_sorted: np.ndarray | None = None
 
     def _model_path(self, version: int | None = None) -> Path:
         suffix = f".v{version}" if version is not None else ""
@@ -44,6 +45,9 @@ class AnomalyModel:
         )
         forest.fit(embeddings)
         self._forest = forest
+        # decision_function on the *training* set is the reference distribution
+        # severity is scored against at detect() time — see _severity_from_scores.
+        self._train_scores_sorted = np.sort(forest.decision_function(embeddings))
         self._persist()
 
     def _persist(self) -> None:
@@ -55,13 +59,15 @@ class AnomalyModel:
             ]
             next_version = max(existing_versions, default=0) + 1
             current.replace(self._model_path(version=next_version))
-        joblib.dump(self._forest, current)
+        joblib.dump({"forest": self._forest, "train_scores_sorted": self._train_scores_sorted}, current)
 
     def load(self) -> None:
         path = self._model_path()
         if not path.exists():
             raise FileNotFoundError(f"no trained model at {path} — call train() first")
-        self._forest = joblib.load(path)
+        payload = joblib.load(path)
+        self._forest = payload["forest"]
+        self._train_scores_sorted = payload["train_scores_sorted"]
 
     def detect(self, embeddings: np.ndarray, templates: list[str]) -> list[DetectionResult]:
         if self._forest is None:
@@ -71,18 +77,22 @@ class AnomalyModel:
 
         flags = self._forest.predict(embeddings)
         raw_scores = self._forest.decision_function(embeddings)
-        severities = self._normalize(raw_scores)
+        severities = self._severity_from_scores(raw_scores)
 
         return [
             DetectionResult(template=t, flag=int(f), severity_score=float(s))
             for t, f, s in zip(templates, flags, severities)
         ]
 
-    @staticmethod
-    def _normalize(raw_scores: np.ndarray) -> np.ndarray:
-        """decision_function: higher = more normal. Flip + squash to 0..1 anomaly severity."""
-        inverted = -raw_scores
-        lo, hi = inverted.min(), inverted.max()
-        if hi - lo < 1e-9:
-            return np.zeros_like(inverted)
-        return (inverted - lo) / (hi - lo)
+    def _severity_from_scores(self, raw_scores: np.ndarray) -> np.ndarray:
+        """Severity = fraction of the *training baseline* this score is more anomalous than.
+
+        decision_function: higher = more normal. Scoring against the persisted
+        training distribution (not the eval batch's own min/max) keeps severity
+        comparable across separate detect() calls — a batch of near-identical
+        attack lines shouldn't get squashed toward 0.5 just because they're
+        similar to each other.
+        """
+        n = len(self._train_scores_sorted)
+        rank = np.searchsorted(self._train_scores_sorted, raw_scores, side="right")
+        return 1.0 - (rank / n)

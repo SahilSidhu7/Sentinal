@@ -27,7 +27,7 @@ class LogTemplateExtractor:
         config.load(str(Path(__file__).parent / "drain3_config.ini"))
         config.profiling_enabled = False
 
-        from drain3.persistence_handler import FilePersistence
+        from drain3.file_persistence import FilePersistence
 
         self._miner = TemplateMiner(FilePersistence(str(state_path)), config=config)
 

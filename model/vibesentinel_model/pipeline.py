@@ -29,18 +29,25 @@ class LogPipeline:
         self._anomaly_model = AnomalyModel(target_id)
         self.malformed_line_count = 0
 
-    def train(self, baseline_log_lines: list[str]) -> None:
-        """Fits the target's Isolation Forest on a window of known-normal traffic."""
+    def train(self, baseline_log_lines: list[str], *, contamination: float = 0.02) -> None:
+        """Fits the target's Isolation Forest on a window of known-normal traffic.
+
+        Trains on *distinct* templates, not raw lines: a handful of templates
+        (e.g. one routine heartbeat message) can dominate raw line counts and
+        would otherwise skew the forest's density estimate toward "whatever
+        repeats most" rather than "what normal traffic actually looks like".
+        """
         templates, malformed = self._templates_for(baseline_log_lines)
         self.malformed_line_count += malformed
         if not templates:
             raise ValueError("no usable templates extracted from baseline log lines")
 
-        embeddings = self._embed_in_batches(templates)
-        self._anomaly_model.train(embeddings)
+        unique_templates = list(dict.fromkeys(templates))
+        embeddings = self._embed_in_batches(unique_templates)
+        self._anomaly_model.train(embeddings, contamination=contamination)
         logger.info(
-            "trained target=%s samples=%d malformed=%d",
-            self.target_id, len(templates), malformed,
+            "trained target=%s raw_lines=%d unique_templates=%d malformed=%d",
+            self.target_id, len(templates), len(unique_templates), malformed,
         )
 
     def detect(self, log_lines: list[str]) -> list[DetectionResult]:

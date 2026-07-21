@@ -2,3 +2,7 @@ artifacts/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# third-party datasets: fetch per datasets/SOURCES.md, don't commit
+datasets/*.tar.gz
+datasets/_extracted/
