@@ -1,0 +1,8 @@
+[project]
+name = "vibesentinel-model"
+version = "0.1.0"
+description = "VibeSentinel local anomaly detection: Drain3 + ONNX MiniLM + Isolation Forest"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
