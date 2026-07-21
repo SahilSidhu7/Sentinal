@@ -1,8 +1,8 @@
 from typer.testing import CliRunner
 
-from vibesentinel_cli.app import app
-from vibesentinel_cli.config import AgentConfig
-from vibesentinel_cli.pipeline import get_pipeline
+from sentinal.app import app
+from sentinal.config import AgentConfig
+from sentinal.pipeline import get_pipeline
 
 runner = CliRunner()
 
@@ -11,11 +11,12 @@ def test_help() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "register" in result.output
-    assert "monitor" in result.output
+    assert "run" in result.output
+    assert "scan" in result.output
 
 
 def test_status_missing_config_fails_cleanly(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("vibesentinel_cli.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setattr("sentinal.config.CONFIG_DIR", tmp_path)
     monkeypatch.setattr(AgentConfig, "path_for", classmethod(lambda cls, tid: tmp_path / f"{tid}.json"))
     result = runner.invoke(app, ["status", "--target-id", "nonexistent"])
     assert result.exit_code != 0

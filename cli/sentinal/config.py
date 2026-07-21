@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-CONFIG_DIR = Path(os.environ.get("VIBESENTINEL_HOME", Path.home() / ".vibesentinel"))
+CONFIG_DIR = Path(os.environ.get("SENTINAL_HOME", Path.home() / ".sentinal"))
 
 
 class AgentConfig(BaseModel):

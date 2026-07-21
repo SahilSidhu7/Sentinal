@@ -32,6 +32,19 @@ class CoreClient:
         resp.raise_for_status()
         return resp.json()["token"]
 
+    def trigger_scan(self, target_id: str) -> dict:
+        """POST /targets/{id}/scan — runs the backend's Scanner (Module 1) and
+        returns its findings + score. CLI blocks container startup on the
+        result rather than duplicating scanner logic locally.
+        """
+        resp = httpx.post(
+            f"{self.backend_url}/targets/{target_id}/scan",
+            headers=self._headers(),
+            timeout=self._timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def heartbeat(self, target_id: str) -> None:
         httpx.post(
             f"{self.backend_url}/agent/heartbeat",

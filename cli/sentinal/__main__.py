@@ -1,4 +1,4 @@
-from vibesentinel_cli.app import main
+from sentinal.app import main
 
 if __name__ == "__main__":
     main()
