@@ -45,8 +45,36 @@ export function SiteLayout() {
       <main className="flex-1">
         <Outlet />
       </main>
-      <footer className="border-t border-slate-800 py-8 text-center text-xs text-slate-500">
-        Sentinal — local-first security monitoring, no LLM in the detection path.
+      <footer className="border-t border-slate-800 py-10">
+        <div className="mx-auto flex max-w-6xl flex-col items-center gap-4 px-6 text-center">
+          <nav className="flex items-center gap-6 text-sm text-slate-400">
+            <NavLink to="/docs" className="hover:text-slate-200">
+              Docs
+            </NavLink>
+            <NavLink to="/install" className="hover:text-slate-200">
+              Installation
+            </NavLink>
+            <a
+              href="https://github.com/SahilSidhu7/Sentinal"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-slate-200"
+            >
+              GitHub
+            </a>
+            <a
+              href="https://github.com/SahilSidhu7/Sentinal/blob/main/LICENSE"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-slate-200"
+            >
+              License
+            </a>
+          </nav>
+          <p className="text-xs text-slate-500">
+            Sentinal — local-first security monitoring, no LLM in the detection path.
+          </p>
+        </div>
       </footer>
     </div>
   );
