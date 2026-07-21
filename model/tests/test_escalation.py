@@ -36,13 +36,14 @@ def test_low_severity_never_counts_toward_escalation():
     assert tracker.observe("203.0.113.7", _hit(0.3), timestamp=1) is None
 
 
-def test_gating_is_by_severity_not_raw_flag():
-    """flag is contamination-threshold-derived and easy to miscalibrate on a
-    small baseline (see model/README.md eval notes) — severity_score is the
-    real gate, regardless of what flag says."""
+def test_high_severity_with_normal_flag_never_counts():
+    """flag==-1 is required — a high severity_score alone isn't enough. Gating
+    on flag (contamination-calibrated) is what gives the low false-positive
+    rate documented in model/README.md; severity_threshold is just a floor
+    on top of it."""
     tracker = EscalationTracker(min_events=1, severity_threshold=0.6)
     high_severity_but_flag_normal = DetectionResult(template="x", flag=1, severity_score=0.9)
-    assert tracker.observe("203.0.113.7", high_severity_but_flag_normal, timestamp=0) is not None
+    assert tracker.observe("203.0.113.7", high_severity_but_flag_normal, timestamp=0) is None
 
 
 def test_window_eviction_resets_count():

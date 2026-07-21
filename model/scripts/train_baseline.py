@@ -48,18 +48,20 @@ def sample(lines: list[str], n: int, rng: random.Random) -> list[str]:
     return rng.sample(lines, n)
 
 
-SEVERITY_GATE = 0.7  # matches EscalationTracker's default — see vibesentinel_model/escalation.py
-
-
 def report(label: str, results) -> None:
+    """Flag-based (raw IsolationForest -1/1, contamination-calibrated) is the
+    primary metric — gives a much lower FP rate on real data than gating on
+    severity_score alone. See EscalationTracker.observe, which gates the
+    same way. avg_severity is secondary context, not the pass/fail signal.
+    """
     if not results:
         print(f"    {label}: no lines")
         return
-    above_gate = sum(1 for r in results if r.severity_score >= SEVERITY_GATE)
+    flagged = sum(1 for r in results if r.flag == -1)
     avg_severity = sum(r.severity_score for r in results) / len(results)
     print(
-        f"    {label}: n={len(results)} severity>={SEVERITY_GATE}={above_gate} "
-        f"({above_gate / len(results):.0%}) avg_severity={avg_severity:.2f}"
+        f"    {label}: n={len(results)} flagged={flagged} "
+        f"({flagged / len(results):.0%}) avg_severity={avg_severity:.2f}"
     )
 
 
@@ -91,9 +93,9 @@ def train_and_eval(target_id: str, normal: list[str], attack: list[str], attack_
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--baseline-size", type=int, default=6000)
+    parser.add_argument("--baseline-size", type=int, default=3000)
     parser.add_argument("--eval-size", type=int, default=400)
-    parser.add_argument("--contamination", type=float, default=0.03)
+    parser.add_argument("--contamination", type=float, default=0.05)
     parser.add_argument(
         "--with-csic",
         action="store_true",

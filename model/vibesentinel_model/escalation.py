@@ -16,7 +16,7 @@ from .anomaly import DetectionResult
 
 _IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 
-SEVERITY_THRESHOLD = 0.7  # per-line: below this, not even "suspicious" — see model/README.md tuning notes
+SEVERITY_THRESHOLD = 0.5  # floor applied on top of flag==-1 — see model/README.md tuning notes
 MIN_EVENTS_TO_ESCALATE = 4  # sustained count within window before it's an Attack Event
 WINDOW_SECONDS = 300  # spec §4/§6.4 default correlation/escalation window
 
@@ -74,11 +74,12 @@ class EscalationTracker:
         self._events: dict[str, deque] = {}
 
     def observe(self, source_ip: str, result: DetectionResult, timestamp: float) -> AttackEvent | None:
-        # Gate on severity_score (continuous, calibrated against the training
-        # baseline) rather than the binary flag — flag's threshold comes from
-        # `contamination`, which is a rough guess and easy to miscalibrate on
-        # a small/low-diversity baseline. severity_score is the real signal.
-        if result.severity_score < self._severity_threshold:
+        # Gate on the raw flag (contamination-calibrated) first — empirically
+        # gives a much lower false-positive rate on real data than gating on
+        # severity_score alone (see model/README.md eval history). Require
+        # severity_threshold too as a floor, mainly to keep low-severity
+        # borderline flags out of the sustained-window count.
+        if result.flag != -1 or result.severity_score < self._severity_threshold:
             return None
 
         window = self._events.setdefault(source_ip, deque())
