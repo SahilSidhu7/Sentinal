@@ -18,17 +18,24 @@ All three are from [loghub](https://github.com/logpai/loghub) (LOGPAI), the stan
 
 These give real baseline "normal" traffic (server startup, routine cron/kernel messages, legitimate access) plus real attack traffic (SSH brute force, invalid-user probing, forbidden-directory access) — a solid fit for training/validating the Isolation Forest anomaly path (spec §4) on auth-log and Apache-log sources.
 
-Gap: none of the three contain HTTP-request-line attacks (SQLi/XSS/path-traversal payloads in a URL) — that's covered by `examples/synthetic_logs.py` instead, since no suitable *loggable* public dataset was found without manual registration/licensing steps (see below). Heuristic auth-attack labels are for **evaluation sanity-checking only** — Isolation Forest training itself stays unsupervised (spec §4 step 3), no labels are fed into `train()`.
+Heuristic auth-attack labels (for Apache/Linux/SSH) are for **evaluation sanity-checking only** — Isolation Forest training itself stays unsupervised (spec §4 step 3), no labels are fed into `train()`.
 
-## Researched, not yet pulled in (need manual fetch / licensing check before use)
+## CSIC 2010 HTTP dataset (in use, real labels, ML approach doesn't work on it yet)
 
-Priority order — top one closes the biggest actual gap (real HTTP-attack traffic):
+36,000 normal + 25,065 real-labeled anomalous HTTP requests against a simulated e-commerce app: SQLi, XSS, buffer overflow, CRLF injection, parameter tampering, path traversal, SSI, files disclosure. Unlike the loghub three, ground truth here is **real** (`norm`/`anom` per request from the dataset itself), not a regex proxy.
 
-1. **CSIC 2010 HTTP dataset** — 36k normal + 25k+ anomalous labeled HTTP requests against a simulated e-commerce app: SQLi, XSS, buffer overflow, CRLF injection, parameter tampering, path traversal, SSI, files disclosure. This is real request-line attack traffic, not synthetic — directly replaces/validates `examples/synthetic_logs.py`'s SQLi/XSS/traversal generator with ground-truth-labeled data. Original host (`isi.csic.es`) has moved around over the years; current easiest mirror is Kaggle (`ispangler/csic-2010-web-application-attacks`). Manual download (Kaggle auth required) — check the mirror's stated license/terms before committing any of it into this repo.
-2. **Morzeux/HttpParamsDataset (GitHub)** — smaller, focused: benign vs. attack payload strings (SQLi, XSS, command injection, path traversal) meant to be dropped into HTTP param values — good as a payload-variety supplement even after CSIC 2010 is in, cheap to template-ify for Drain3 since it's just param strings, not full log lines.
-3. **loghub OpenStack** — normal + failure-injected abnormal logs from real OpenStack VM lifecycle ops. Relevant if VibeSentinel targets containerized/virtualized self-hosted infra, not just bare Nginx/SSH boxes.
-4. **loghub Windows** — relevant since a meaningful slice of self-hosted-server operators (our target user per spec §1) run Windows Server, not just Linux. Closes a real blind spot — everything currently in `/model` is Linux/Unix-flavored (syslog, SSH, Apache on *nix).
-5. **loghub Zookeeper / Hadoop / HDFS** — lower priority for our target user (indie devs / small self-hosted ops), these are distributed-systems-at-scale logs more relevant to teams running that specific stack. Worth adding only if a teammate's target audience actually runs it.
-- **AIT-LDS (`ait-aecid/anomaly-detection-log-datasets`, GitHub)** — curated multi-source log anomaly datasets with documented labels; worth a look for additional Apache/auth sources if the loghub three prove insufficient.
+**License:** no formal license found from the original rights holder (CSIC — Carmen Torrano Giménez, Alejandro Pérez Villegas, Gonzalo Álvarez Marañón). The original host (`isi.csic.es`) has moved repeatedly; current mirror used is `lexr.ai/csic_dataset/` (maintained by Peter Scully, whose page states informal permission: *"feel free to download and use them as you see fit"*, requesting attribution to the original CSIC researchers). This is a mirror maintainer's informal blessing, **not** a stated open license from CSIC. Treated the same as the loghub datasets: fine for local research/training use, kept **gitignored** (`csic2010_full.csv.zip`, `_extracted/CSIC2010/`), never committed to this public repo.
 
-Don't add any of these without a licensing check first — the three already in `/model/datasets` are used under loghub's terms for research/education, which is what this is. Kaggle-mirrored datasets in particular: confirm the mirror's own license, not just the original paper's stated terms.
+**How to obtain:** `curl -o model/datasets/csic2010_full.csv.zip http://lexr.ai/csic_dataset/output_http_csic_2010_weka_with_duplications_RAW-RFC2616_escd_v02_full.csv.zip` — `scripts/csic_dataset.py` extracts and reconstructs full-request log lines from it automatically (the CSV is one row per request *parameter*, grouped by an `index` column — reconstruction verified against the dataset's published stats, 36k/25k).
+
+**Status:** loader works, but the Drain3+MiniLM+IsolationForest pipeline doesn't separate normal from attack traffic on this dataset (~50-95% FP depending on threshold — see `model/README.md` "Known limitation 2" for the diagnosis and why this points to a signature/regex pre-filter, not more ML tuning, as the fix). Not wired into `train_baseline.py`'s default run — use `--with-csic` to include it.
+
+## Other datasets researched, not pulled in
+
+1. **Morzeux/HttpParamsDataset (GitHub)** — smaller, focused: benign vs. attack payload strings (SQLi, XSS, command injection, path traversal) meant to be dropped into HTTP param values. Good fit for a future signature/regex pre-filter's test fixtures (see CSIC2010 status above), not for this package's embedding approach.
+2. **loghub OpenStack** — normal + failure-injected abnormal logs from real OpenStack VM lifecycle ops. Relevant if VibeSentinel targets containerized/virtualized self-hosted infra, not just bare Nginx/SSH boxes.
+3. **loghub Windows** — relevant since a meaningful slice of self-hosted-server operators (our target user per spec §1) run Windows Server, not just Linux. Closes a real blind spot — everything currently in `/model` is Linux/Unix-flavored.
+4. **loghub Zookeeper / Hadoop / HDFS** — lower priority for our target user (indie devs / small self-hosted ops); distributed-systems-at-scale logs more relevant to teams running that specific stack.
+5. **AIT-LDS (`ait-aecid/anomaly-detection-log-datasets`, GitHub)** — curated multi-source log anomaly datasets with documented labels; worth a look for additional Apache/auth sources if the loghub three prove insufficient.
+
+Don't add any of these without a licensing check first — same posture as loghub/CSIC2010: local research/training use only, gitignored, never committed.

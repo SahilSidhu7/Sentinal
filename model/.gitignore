@@ -5,4 +5,5 @@ __pycache__/
 
 # third-party datasets: fetch per datasets/SOURCES.md, don't commit
 datasets/*.tar.gz
+datasets/*.zip
 datasets/_extracted/

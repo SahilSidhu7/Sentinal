@@ -25,9 +25,10 @@ vibesentinel_model/
   escalation.py     EscalationTracker: sustained per-source-IP gating + response ladder
 scripts/
   export_onnx_model.py   one-time model export (run before first use)
-  prepare_datasets.py     extracts datasets/*.tar.gz
+  prepare_datasets.py     extracts datasets/*.tar.gz (loghub)
+  csic_dataset.py          extracts + reconstructs CSIC2010 request lines (real labels)
   heuristics.py            weak eval-only attack labels (never fed into training)
-  train_baseline.py       real train+eval on the loghub datasets in datasets/
+  train_baseline.py       real train+eval on datasets/ (--with-csic for CSIC2010)
 examples/
   synthetic_logs.py       normal traffic + SQLi/traversal/XSS samples
   run_demo.py              runs the full pipeline end-to-end, prints results
@@ -48,27 +49,36 @@ python examples/run_demo.py             # sanity check on synthetic logs
 
 ## Training on real data
 
-`datasets/` holds real loghub logs (Apache, Linux, SSH — see `datasets/SOURCES.md` for provenance). `scripts/train_baseline.py` trains a per-source Isolation Forest and evaluates it against regex-derived weak attack labels (eval-only — training itself stays unsupervised):
+`datasets/` holds real logs: loghub Apache/Linux/SSH (regex-derived weak labels, eval-only) and CSIC 2010 (real ground-truth `norm`/`anom` labels per request) — see `datasets/SOURCES.md` for provenance. `scripts/train_baseline.py` trains a per-source Isolation Forest and evaluates it:
 
 ```
 python scripts/train_baseline.py
 ```
 
-Current numbers (contamination=0.03, Drain3 `sim_th=0.65`, severity gate 0.7):
+Current numbers (contamination=0.03, Drain3 `sim_th=0.65`, alert gate 0.7):
 
 | Source | Normal false-positive rate | Attack detection rate |
 |---|---|---|
 | Apache | 12% | 100% |
 | Linux | 8% | 87% |
 | SSH | 44% | 99% |
+| CSIC2010 | ~75-95% | ~52-92% (no real separation) |
 
-### Known limitation: per-line false-positive rate is real, not zero
+### Known limitation 1: per-line false-positive rate on Apache/Linux/SSH is real, not zero
 
-These datasets have genuinely heterogeneous "normal" traffic (mixed subsystems, rare one-off messages a fixed-size baseline never sees) — no amount of threshold/baseline-size tuning drove Apache/SSH false positives near zero without also gutting recall (tried: baseline size 3k→15k, `contamination` 0.02→0.05, Drain3 `sim_th` 0.4→0.65 — see git history on the `model` branch for the full sweep). SSH is the hardest case: its "attack" traffic (brute-force) and a chunk of its legitimate traffic both reduce to short, generic auth-log templates that sit close together in embedding space.
+These logs have genuinely heterogeneous "normal" traffic (mixed subsystems, rare one-off messages a fixed-size baseline never sees) — no amount of threshold/baseline-size tuning drove Apache/SSH false positives near zero without also gutting recall (tried: baseline size 3k→20k, `contamination` 0.02→0.05, Drain3 `sim_th` 0.4→0.65 — see git history on the `model` branch for the full sweep). SSH is the hardest of the three: its brute-force traffic and a chunk of its legitimate traffic both reduce to short, generic auth-log templates that sit close together in embedding space.
 
-**This is why `escalation.py` exists and why nothing in this package should gate a destructive action off a single flagged line.** `EscalationTracker` requires `MIN_EVENTS_TO_ESCALATE` (default 4) anomalous hits from the *same source IP* inside a 5-minute window before it even returns an `AttackEvent`, and `suggest_action()` only recommends `ban_ip` at sustained volume (10+ events) *and* high confidence (≥0.85). A rare-but-legitimate one-off message from a real user's IP won't repeat 4+ times in 5 minutes — that's the actual false-positive suppression mechanism, not per-line accuracy. See "Response ladder" below.
+**Ban-tier risk specifically** (severity ≥0.85, the `ban_ip` gate) — swept 0.7→0.95 on all three: Apache sits flat at 11% FP across the *entire* range (a fixed set of rare-but-benign startup templates the baseline never saw, unaffected by threshold — but note Apache's dataset here is a server-internal *error* log, not a client-facing *access* log, so most of its lines don't carry an actionable attacker IP to ban in the first place; this number is closer to moot for the ban use-case than SSH/Linux's). Linux drops cleanly with threshold (3% FP at 0.85, recall 71%). SSH stays elevated even at the ban tier (18% FP at 0.85) — **don't enable opt-in auto-ban for SSH targets without either raising that target's `contamination`/threshold further past the recall cost, or accepting manual-confirm only for SSH.**
 
-If a specific target's false-positive rate matters more than this default (e.g. tighter compliance environment), calibrate `contamination` and `EscalationTracker`'s thresholds per-target — this should be exposed as the "anomaly-detection sensitivity" Settings knob in spec §3 Module 6, not hardcoded.
+**This is why `escalation.py` exists and why nothing in this package should gate a destructive action off a single flagged line.** `EscalationTracker` requires `MIN_EVENTS_TO_ESCALATE` (default 4) anomalous hits from the *same source IP* inside a 5-minute window before it even returns an `AttackEvent`, and even reaching the `ban_ip` tier (10+ sustained events, ≥0.85 confidence) is a *recommendation* — per spec Module 7, ban execution itself stays manual-confirm by default regardless of what this package outputs, and any target that opts into auto-ban gets TTL-based, reversible bans. A rare-but-legitimate one-off message from a real user's IP won't repeat 4+ times in 5 minutes; per-line noise gets absorbed before it ever reaches a human, let alone an action.
+
+If a specific target's false-positive rate matters more than these defaults (e.g. tighter compliance environment, or an SSH target considering auto-ban), calibrate `contamination` and `EscalationTracker`'s thresholds per-target — this should be exposed as the "anomaly-detection sensitivity" Settings knob in spec §3 Module 6, not hardcoded.
+
+### Known limitation 2: CSIC 2010 (real SQLi/XSS/traversal traffic) doesn't separate with this approach
+
+Unlike the other three, CSIC2010's ground truth is real (`norm`/`anom` per HTTP request, not a regex proxy) — and the pipeline still can't tell them apart (FP/recall both land around 50-95% depending on threshold, i.e. close to random). Root cause, diagnosed not guessed: mean-pooled sentence embeddings of a full request line dilute a short injected payload (`<script>alert(1)</script>`) inside otherwise-ordinary form-field text (`login=`, `pwd=`, `remember=on`, real product names) — the whole-line embedding ends up dominated by the ordinary tokens. Tried: fixing Drain3's delimiter set (`&`/`?` weren't delimiters, so query strings were single blobs — fixed, `drain3_config.ini`) and a 20k-line baseline (3x the original) — neither closed the gap.
+
+This isn't a call to abandon signature-style detection for SQLi/XSS/traversal — it's evidence that **this specific ML approach (structural/behavioral anomaly detection via IsolationForest) is the wrong tool for payload-content detection**, which is what CSIC2010 actually tests. Recommend a hybrid: keep a fast regex/signature pre-filter for known payload patterns (SQL keywords, script tags, traversal sequences — same philosophy as Module 1's scanner) ahead of or alongside this ML layer, which should focus on what it's actually good at: structural/behavioral drift (brute force, scanning, rare endpoints, volume anomalies) — exactly what Apache/Linux/SSH results above demonstrate it can do. `scripts/csic_dataset.py` (loader, verified against the dataset's published stats: 36k norm / 25k anom) stays in the repo for whoever picks up that signature-layer work; it's just not wired into `train_baseline.py`'s default run.
 
 ## Response ladder (alternative to jumping straight to IP ban)
 
