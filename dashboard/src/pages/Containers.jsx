@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
+import { getContainers } from '../lib/api'
 import { mockContainers } from '../lib/mockData'
 import GlassPanel from '../components/GlassPanel'
 import MaterialIcon from '../components/MaterialIcon'
 import StatusDot from '../components/StatusDot'
 
-// Presentation-only: docs/SPEC.md has no containers table/endpoint (§5, §6
-// only define findings/attack_events/bans/audit_log), so this screen has no
-// real fetch path yet — it's mockContainers end to end.
+// Fetches /api/containers from /cli's local status API (sentinal's
+// `docker ps`, normalized in local_api.py's _normalize_container). Falls
+// back to mockContainers via api.js's getJSON when the agent isn't
+// reachable. No live cpu_pct — `docker ps` doesn't report it and this
+// endpoint deliberately avoids polling `docker stats` on every request.
 
 const STATUS_BADGE = {
   running: 'bg-primary/10 text-primary',
@@ -52,12 +55,14 @@ function ContainerCard({ container }) {
             {container.uptime ?? container.exit_info}
           </span>
         </div>
-        <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
-          <div
-            className={`h-full ${container.status === 'error' ? 'bg-error' : isStopped ? 'bg-white/10' : 'bg-primary'}`}
-            style={{ width: `${container.cpu_pct}%` }}
-          />
-        </div>
+        {typeof container.cpu_pct === 'number' && (
+          <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${container.status === 'error' ? 'bg-error' : isStopped ? 'bg-white/10' : 'bg-primary'}`}
+              style={{ width: `${container.cpu_pct}%` }}
+            />
+          </div>
+        )}
       </div>
       <div className="flex justify-between items-center pt-4 border-t border-white/5">
         <div className="flex gap-2">
@@ -96,21 +101,18 @@ export default function Containers() {
   const [containers, setContainers] = useState(mockContainers)
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setContainers((prev) =>
-        prev.map((c) => {
-          if (c.status === 'stopped') return c
-          const variance = Math.floor(Math.random() * 6) - 3
-          return { ...c, cpu_pct: Math.max(5, Math.min(100, c.cpu_pct + variance)) }
-        }),
-      )
-    }, 3000)
+    function refresh() {
+      getContainers().then(setContainers)
+    }
+    refresh()
+    const interval = setInterval(refresh, 5000)
     return () => clearInterval(interval)
   }, [])
 
   const healthy = containers.filter((c) => c.status === 'running').length
   const errors = containers.filter((c) => c.status === 'error').length
-  const avgCpu = Math.round(containers.reduce((sum, c) => sum + c.cpu_pct, 0) / containers.length)
+  const cpuValues = containers.map((c) => c.cpu_pct).filter((v) => typeof v === 'number')
+  const avgCpu = cpuValues.length ? Math.round(cpuValues.reduce((sum, v) => sum + v, 0) / cpuValues.length) : null
 
   return (
     <main className="pt-24 pb-20 px-gutter max-w-[1440px] mx-auto">
@@ -146,7 +148,7 @@ export default function Containers() {
         </GlassPanel>
         <GlassPanel className="p-6 rounded-xl">
           <p className="text-on-surface-variant font-label-caps text-label-caps mb-1">CPU LOAD</p>
-          <p className="font-headline-sm text-headline-sm text-on-surface">{avgCpu}%</p>
+          <p className="font-headline-sm text-headline-sm text-on-surface">{avgCpu === null ? '—' : `${avgCpu}%`}</p>
         </GlassPanel>
       </div>
 

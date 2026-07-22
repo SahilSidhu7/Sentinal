@@ -11,10 +11,10 @@ dependencies = [
     "uvicorn>=0.30",
     "pydantic>=2.7",
 ]
-# vibesentinel-model is installed separately (editable, local path) — see
-# requirements.txt / README setup. Not listed here: pyproject direct
-# references need an absolute file:// URI, which isn't portable across
-# teammates' checkouts.
+# vibesentinel-model and vibesentinel-scanner are installed separately
+# (editable, local path) — see requirements.txt / README setup. Not listed
+# here: pyproject direct references need an absolute file:// URI, which
+# isn't portable across teammates' checkouts.
 
 [project.scripts]
 sentinal = "sentinal.app:main"

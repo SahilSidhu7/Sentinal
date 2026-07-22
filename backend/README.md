@@ -14,9 +14,21 @@ Owns: **vulnerability test** — the scanner + FIM + fusion/scoring + auto-respo
 ## Stack
 Python 3.11 + FastAPI, SQLite, Redis (fallback: in-memory dict + asyncio locks).
 
+## What exists today
+
+`vibesentinel_scanner/` is real and installable (`pip install -e ./backend`) —
+the secrets/dependency-CVE/docker-misconfig/weak-credential scanner from
+Module 1, see `docs/VULNERABILITY_CHECKLIST.md` for the full check list and
+`docs/SPEC.md` §5 for the `Finding` shape. `/cli` imports it directly
+(`cli/sentinal/scanner.py`) and runs it locally at `sentinal run`/`scan` time
+— **the FastAPI service (`POST /targets/{id}/scan`, the rest of §6's API
+surface, SQLite persistence, Redis, auth, audit log) doesn't exist yet.**
+Building that service around this package (rather than duplicating the
+checks) is the next step here.
+
 ## Setup (once scaffolded)
 ```
 cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+pip install -e .            # installs vibesentinel_scanner
+uvicorn app.main:app --reload   # not yet implemented — see "What exists today"
 ```

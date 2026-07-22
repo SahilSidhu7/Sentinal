@@ -3,7 +3,7 @@
 // stays usable during development. Field shapes mirror the shared
 // findings/attack-event contract used by /backend and /cli.
 
-import { mockScore, mockFindings, mockAttackEvents, mockSettings } from './mockData'
+import { mockScore, mockFindings, mockAttackEvents, mockSettings, mockContainers } from './mockData'
 
 async function getJSON(path, fallback) {
   try {
@@ -30,6 +30,10 @@ export function getAttacks() {
 
 export function getSettings() {
   return getJSON('/api/settings', mockSettings)
+}
+
+export function getContainers() {
+  return getJSON('/api/containers', mockContainers)
 }
 
 export async function saveSettings(settings) {

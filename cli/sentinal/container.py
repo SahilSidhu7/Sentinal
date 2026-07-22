@@ -65,6 +65,44 @@ class ContainerRuntime:
         finally:
             proc.terminate()
 
+    def inspect(self, container_id: str) -> dict:
+        """Returns the container's `docker inspect` config as a dict — the
+        raw material for docker_checks.py's misconfiguration checks."""
+        import json
+
+        result = subprocess.run(
+            [self.docker_bin, "inspect", container_id],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise ContainerError(f"docker inspect failed: {result.stderr.strip()}")
+        data = json.loads(result.stdout)
+        return data[0] if data else {}
+
+    def ps(self) -> list[dict]:
+        """Lists containers this host's docker daemon knows about (for the
+        dashboard's Containers view) — not scoped to ones sentinal launched."""
+        import json
+
+        result = subprocess.run(
+            [self.docker_bin, "ps", "-a", "--format", "{{json .}}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return []
+        containers = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                containers.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return containers
+
     def exec(self, container_id: str, cmd: list[str]) -> subprocess.CompletedProcess:
         return subprocess.run(
             [self.docker_bin, "exec", container_id, *cmd],
