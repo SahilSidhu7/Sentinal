@@ -1,0 +1,3 @@
+# FIM baseline cache — cwd-relative (cli/sentinal/app.py), lands here if
+# `sentinal run`/`fim-baseline` is invoked from the repo root.
+.sentinal/

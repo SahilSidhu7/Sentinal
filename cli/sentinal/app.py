@@ -97,9 +97,20 @@ def register(
     target_id: str = typer.Option(..., help="Unique id for this monitored target"),
     backend_url: str = typer.Option(..., help="Core backend base URL, e.g. http://localhost:8000"),
 ) -> None:
-    """Registers this target with core and persists the deployment token."""
+    """Registers this target with core and persists the deployment token.
+
+    Degrades to a tokenless local config if core is unreachable — every
+    other core-facing call in this CLI (send_events, trigger_scan) is
+    already best-effort, so a target still works standalone (scan/run/
+    dashboard) with no core backend running at all.
+    """
     client = CoreClient(backend_url)
-    token = client.register(target_id)
+    try:
+        token = client.register(target_id)
+    except Exception:
+        logger.warning("core unreachable at %s — registering locally with no token", backend_url, exc_info=True)
+        typer.echo(f"warning: couldn't reach core at {backend_url!r} — registered locally (no token; core-facing features stay best-effort)")
+        token = None
     config = AgentConfig(target_id=target_id, backend_url=backend_url, token=token)
     path = config.save()
     typer.echo(f"registered target={target_id!r}, config saved to {path}")

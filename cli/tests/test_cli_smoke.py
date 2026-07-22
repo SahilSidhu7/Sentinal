@@ -48,3 +48,18 @@ def test_upgrade_refuses_outside_git_checkout(tmp_path, monkeypatch) -> None:
     result = runner.invoke(app, ["upgrade"])
     assert result.exit_code != 0
     assert "git checkout" in result.output
+
+
+def test_register_degrades_when_core_unreachable(tmp_path, monkeypatch) -> None:
+    # Core backend doesn't exist yet — register must save a usable local
+    # config instead of crashing, matching every other core-facing call in
+    # this CLI (send_events, trigger_scan are already best-effort).
+    monkeypatch.setattr("sentinal.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(AgentConfig, "path_for", classmethod(lambda cls, tid: tmp_path / f"{tid}.json"))
+
+    result = runner.invoke(app, ["register", "--target-id", "unreachable-test", "--backend-url", "http://localhost:1"])
+
+    assert result.exit_code == 0
+    assert "registered target=" in result.output
+    saved = AgentConfig.load("unreachable-test")
+    assert saved.token is None
