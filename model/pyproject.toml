@@ -3,6 +3,18 @@ name = "vibesentinel-model"
 version = "0.1.0"
 description = "VibeSentinel local anomaly detection: Drain3 + ONNX MiniLM + Isolation Forest"
 requires-python = ">=3.10"  # no 3.11-only syntax/stdlib used; 3.10 covers Ubuntu 22.04 LTS's default python3
+dependencies = [
+    "drain3>=0.9.11",
+    "onnxruntime>=1.17",
+    "tokenizers>=0.15",
+    "numpy>=1.26",
+    "scikit-learn>=1.4",
+    "joblib>=1.3",
+    # only needed to run scripts/export_onnx_model.py, not at pipeline
+    # runtime — kept here anyway (not split into an extra) so `pip install
+    # -e ./model` alone is enough for scripts/install.sh's export step too.
+    "optimum[onnxruntime]>=1.17",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
