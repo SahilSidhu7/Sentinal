@@ -67,3 +67,31 @@ def test_anomaly_model_train_requires_min_samples(tmp_path):
     model = AnomalyModel("test-target", model_dir=tmp_path)
     with pytest.raises(ValueError):
         model.train(_fake_embeddings(3))
+
+
+def test_anomaly_model_seed_from_pretrained(tmp_path):
+    source = AnomalyModel("nginx", model_dir=tmp_path)
+    source.train(_fake_embeddings(30))
+
+    target = AnomalyModel("fresh-target", model_dir=tmp_path)
+    target.seed_from("nginx")
+
+    assert (tmp_path / "fresh-target.log_anomaly_model.joblib").exists()
+    # seeded model can detect immediately, no separate train() call needed
+    results = target.detect(_fake_embeddings(5), templates=[f"t{i}" for i in range(5)])
+    assert len(results) == 5
+
+
+def test_anomaly_model_seed_from_missing_source_raises(tmp_path):
+    target = AnomalyModel("fresh-target", model_dir=tmp_path)
+    with pytest.raises(FileNotFoundError):
+        target.seed_from("does-not-exist")
+
+
+def test_anomaly_model_available_pretrained_lists_unversioned_only(tmp_path):
+    AnomalyModel("nginx", model_dir=tmp_path).train(_fake_embeddings(20))
+    AnomalyModel("nginx", model_dir=tmp_path).train(_fake_embeddings(20))  # creates a .v1 version
+    AnomalyModel("apache", model_dir=tmp_path).train(_fake_embeddings(20))
+
+    available = AnomalyModel("whatever", model_dir=tmp_path).available_pretrained()
+    assert available == ["apache", "nginx"]

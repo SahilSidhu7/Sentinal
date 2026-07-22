@@ -30,6 +30,22 @@ class LogPipeline:
         self._anomaly_model = AnomalyModel(target_id)
         self.malformed_line_count = 0
 
+    def available_pretrained(self) -> list[str]:
+        """Dataset ids this target can seed from (e.g. 'nginx', 'csic2010') —
+        see model/README.md's eval table for which fits a given log format best."""
+        return self._anomaly_model.available_pretrained()
+
+    def seed_from_pretrained(self, source_id: str) -> None:
+        """Starts this target's detection from a pretrained dataset model
+        instead of an empty one — real detection from the first batch, no
+        cold-start wait for a baseline to accumulate. `train()` (called
+        periodically by /cli on this target's own accumulated normal
+        traffic — see cli/README.md "continuous improvement") later replaces
+        this seed with a fit on the target's actual traffic, versioned so
+        the seed isn't lost."""
+        self._anomaly_model.seed_from(source_id)
+        logger.info("target=%s seeded from pretrained model=%s", self.target_id, source_id)
+
     def train(self, baseline_log_lines: list[str], *, contamination: float = 0.05) -> None:
         """Fits the target's Isolation Forest on a window of known-normal traffic.
 

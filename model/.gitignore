@@ -1,7 +1,15 @@
-artifacts/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# ONNX embedding model (~90MB) — third-party (sentence-transformers/all-MiniLM-L6-v2),
+# re-downloadable via `python scripts/export_onnx_model.py`, not ours to ship.
+artifacts/all-MiniLM-L6-v2/
+
+# artifacts/models/*.joblib and artifacts/drain3_state/*.bin are NOT ignored —
+# those are our own trained per-dataset baselines (see README.md's eval
+# table), shipped so a fresh install can seed detection immediately
+# (LogPipeline.seed_from_pretrained) instead of cold-starting with nothing.
 
 # third-party datasets: fetch per datasets/SOURCES.md, don't commit
 datasets/*.tar.gz

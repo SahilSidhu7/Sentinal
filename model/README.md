@@ -47,9 +47,15 @@ tests/
 
 ```
 pip install -r requirements.txt
-python scripts/export_onnx_model.py     # downloads + exports MiniLM to ./artifacts/
+python scripts/export_onnx_model.py     # downloads + exports MiniLM to ./artifacts/ (~90MB, gitignored — not ours to ship)
 python examples/run_demo.py             # sanity check on synthetic logs
 ```
+
+`artifacts/models/*.joblib` + `artifacts/drain3_state/*.bin` (the 5 dataset-trained baselines from the eval table below) **are** committed — a fresh clone can seed a new target's detection from one of them immediately via `LogPipeline.seed_from_pretrained("nginx")` (see `/cli`'s `--seed-model` option) without waiting to export the ONNX model or accumulate its own baseline first. You still need the ONNX export step above to run `detect()`/`train()` at all — the shipped `.joblib` files are the Isolation Forests, not the embedder.
+
+## Continuous improvement (seed -> adapt)
+
+A target doesn't stay pinned to its seed model. `/cli`'s `run` loop accumulates the target's own normal-flagged traffic and periodically calls `train()` again on it (`--retrain-every`, default 500 lines) — each retrain versions the previous model (`AnomalyModel._persist`) rather than discarding it, so detection keeps adapting to what this specific target's real traffic actually looks like instead of staying frozen on someone else's dataset.
 
 ## Training on real data
 

@@ -70,6 +70,27 @@ class AnomalyModel:
         self._forest = payload["forest"]
         self._train_scores_sorted = payload["train_scores_sorted"]
 
+    def available_pretrained(self) -> list[str]:
+        """Dataset-trained baselines shipped with /model (see model/README.md's
+        eval table) — a new target can seed from the closest match instead of
+        cold-starting with no detection until it accumulates its own baseline.
+        Glob only matches unversioned files (versioned ones end in
+        `.vN.joblib`, a different suffix), so no extra filtering needed."""
+        return sorted(p.name.removesuffix(".log_anomaly_model.joblib") for p in self._model_dir.glob("*.log_anomaly_model.joblib"))
+
+    def seed_from(self, source_id: str) -> None:
+        """Copies a pretrained dataset model in as this target's starting
+        point. Detection works immediately; `train()` still overwrites it
+        (versioned) once this target has accumulated its own real baseline —
+        see LogPipeline.seed_from_pretrained and the cli's periodic retrain."""
+        source_path = self._model_dir / f"{source_id}.log_anomaly_model.joblib"
+        if not source_path.exists():
+            raise FileNotFoundError(f"no pretrained model for source={source_id!r} at {source_path}")
+        payload = joblib.load(source_path)
+        self._forest = payload["forest"]
+        self._train_scores_sorted = payload["train_scores_sorted"]
+        self._persist()
+
     def detect(self, embeddings: np.ndarray, templates: list[str]) -> list[DetectionResult]:
         if self._forest is None:
             self.load()

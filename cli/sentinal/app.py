@@ -79,7 +79,15 @@ def run(
     status_api_port: int = typer.Option(8765, help="Local port for the dashboard status API"),
     force: bool = typer.Option(False, help="Start even if the startup scan finds critical issues"),
     batch_size: int = typer.Option(50, help="Log lines per detect() batch shipped to core"),
-    baseline_lines: int = typer.Option(200, help="Log lines to auto-train a fresh target's anomaly baseline on"),
+    baseline_lines: int = typer.Option(200, help="Log lines to auto-train a fresh target's anomaly baseline on, if not seeding from a pretrained model"),
+    seed_model: str = typer.Option(
+        "nginx", help="Pretrained dataset model to seed detection from (see model/README.md eval table) — "
+        "'none' to cold-start on this target's own first log lines instead"
+    ),
+    retrain_every: int = typer.Option(
+        500, help="Retrain the anomaly baseline on this many freshly observed normal-traffic lines "
+        "(continuous improvement as the target runs) — 0 disables"
+    ),
 ) -> None:
     """Launches the container, blocks on the startup scan, then monitors it for its lifetime."""
     config = AgentConfig.load(target_id)
@@ -162,7 +170,22 @@ def run(
     if pipeline is None:
         typer.echo("warning: anomaly detection disabled (no /model artifacts) — log tailing only")
 
-    pipeline_box = {"pipeline": pipeline, "trained": pipeline is None}
+    seeded = False
+    if pipeline is not None and seed_model.lower() != "none":
+        try:
+            pipeline.seed_from_pretrained(seed_model)
+            seeded = True
+            typer.echo(f"anomaly detection seeded from pretrained model={seed_model!r} — active immediately")
+        except FileNotFoundError:
+            available = pipeline.available_pretrained()
+            typer.echo(f"warning: no pretrained model {seed_model!r} (available: {available}) — cold-starting instead")
+
+    pipeline_box = {
+        "pipeline": pipeline,
+        "trained": pipeline is None or seeded,
+        "normal_buffer": [],
+        "retrain_every": retrain_every,
+    }
     buffer: list[str] = []
     try:
         for line in runtime.logs(container_id):
@@ -204,6 +227,30 @@ def _train_baseline(pipeline_box: dict, target_id: str, lines: list[str]) -> Non
         pipeline_box["trained"] = True
 
 
+_RETRAIN_WINDOW_CAP = 3000  # matches model/README.md's baseline size for the shipped dataset models
+
+
+def _maybe_retrain(pipeline_box: dict, target_id: str) -> None:
+    """Continuous improvement: refit the baseline on this target's own
+    recently observed normal traffic, on top of a seed or cold-start. Each
+    refit versions the previous model (AnomalyModel._persist) rather than
+    losing it."""
+    retrain_every = pipeline_box["retrain_every"]
+    if retrain_every <= 0:
+        return
+    buffer = pipeline_box["normal_buffer"]
+    if len(buffer) < retrain_every:
+        return
+
+    window = buffer[-_RETRAIN_WINDOW_CAP:]
+    try:
+        pipeline_box["pipeline"].train(window)
+        logger.info("retrained target=%s on %d accumulated normal lines", target_id, len(window))
+    except ValueError:
+        logger.warning("target=%s: retrain skipped (not enough usable lines)", target_id)
+    pipeline_box["normal_buffer"] = []
+
+
 def _flush(pipeline_box: dict, tracker, client: CoreClient, agent_state: AgentState, target_id: str, lines: list[str]) -> None:
     pipeline = pipeline_box["pipeline"]
     if pipeline is None:
@@ -220,6 +267,7 @@ def _flush(pipeline_box: dict, tracker, client: CoreClient, agent_state: AgentSt
     events = []
     for line, r in zip(lines, results):
         if r.flag != -1:
+            pipeline_box["normal_buffer"].append(line)
             continue
         events.append({"type": "log_anomaly", "template": r.template, "flag": r.flag, "severity_score": r.severity_score})
         agent_state.add_attack({
@@ -261,6 +309,8 @@ def _flush(pipeline_box: dict, tracker, client: CoreClient, agent_state: AgentSt
             client.send_events(target_id, events)
         except Exception:
             logger.debug("core unreachable for events batch — dashboard still has them", exc_info=True)
+
+    _maybe_retrain(pipeline_box, target_id)
 
 
 @app.command("fim-baseline")
