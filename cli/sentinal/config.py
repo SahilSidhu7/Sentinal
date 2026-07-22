@@ -16,6 +16,8 @@ class AgentConfig(BaseModel):
     token: str | None = None
     watch_paths: list[str] = []
     critical_globs: list[str] = ["*.env", "*.env.*", "**/config/**"]
+    container_id: str | None = None  # set by `run`/`deploy` — lets stop/logs/serve-ban-api
+    # resolve the container from --target-id alone, no raw docker ID needed.
 
     @staticmethod
     def path_for(target_id: str) -> Path:

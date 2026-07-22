@@ -23,9 +23,10 @@ import uvicorn
 
 from sentinal import __version__
 from sentinal.ban_api import create_app as create_ban_app
+from sentinal.build import BuildError, ensure_dockerfile
 from sentinal.client import CoreClient
 from sentinal.config import AgentConfig
-from sentinal.container import ContainerRuntime
+from sentinal.container import ContainerError, ContainerRuntime
 from sentinal.fim import FileIntegrityMonitor
 from sentinal.local_api import create_app as create_status_app
 from sentinal.pipeline import extract_source_ip, get_escalation_tracker, get_pipeline
@@ -140,7 +141,15 @@ def scan(
 @app.command()
 def run(
     target_id: str = typer.Option(..., help="Target id from a prior `register` call"),
-    image: str = typer.Option(..., help="Container image to launch, e.g. myapp:latest"),
+    path: str = typer.Option(
+        None, help="Path to your app's source. sentinal builds it (using your Dockerfile if you have "
+        "one, otherwise auto-detecting Python/Node and generating one) and runs the result — "
+        "you never run `docker build`/`docker run` yourself. Mutually exclusive with --image."
+    ),
+    image: str = typer.Option(
+        None, help="An already-built image to run instead of building from --path, e.g. myapp:latest "
+        "or a registry image you didn't build yourself."
+    ),
     name: str = typer.Option(None, help="Container name"),
     port: list[str] = typer.Option([], "--port", help="Port mapping, e.g. 8080:8080; repeatable"),
     env: list[str] = typer.Option([], "--env", help="Env var KEY=VALUE; repeatable"),
@@ -159,13 +168,40 @@ def run(
         "(continuous improvement as the target runs) — 0 disables"
     ),
 ) -> None:
-    """Launches the container, blocks on the startup scan, then monitors it for its lifetime."""
+    """Builds (if --path) and launches the container, blocks on the startup
+    scan, then monitors it for its lifetime."""
+    if bool(path) == bool(image):
+        typer.echo("error: pass exactly one of --path (build from source) or --image (run an existing image)")
+        raise typer.Exit(code=1)
+
     config = AgentConfig.load(target_id)
     client = CoreClient(config.backend_url, config.token)
-
     runtime = ContainerRuntime()
+
+    if path:
+        tag = f"sentinal/{target_id}:latest"
+        try:
+            context_dir, dockerfile_path, generated = ensure_dockerfile(path)
+        except BuildError as exc:
+            typer.echo(f"error: {exc}")
+            raise typer.Exit(code=1)
+        typer.echo(
+            f"{'generated a Dockerfile (no app-type Dockerfile found)' if generated else 'using existing Dockerfile'} "
+            f"— building {tag} from {context_dir} ..."
+        )
+        try:
+            runtime.build(str(context_dir), str(dockerfile_path), tag)
+        except ContainerError as exc:
+            typer.echo(f"error: {exc}")
+            raise typer.Exit(code=1)
+        image = tag
+        if not volume:
+            volume = [f"{context_dir}:/app_source"]  # so the startup scanner can see your source too
+
     container_id = runtime.run(image=image, name=name, ports=port, env=env, volumes=volume)
     typer.echo(f"container started: {container_id[:12]}")
+    config.container_id = container_id
+    config.save()
 
     typer.echo("running startup vulnerability scan...")
     try:
@@ -279,6 +315,8 @@ def run(
             _flush(pipeline_box, tracker, client, agent_state, target_id, buffer)
         typer.echo(f"stopping container {container_id[:12]}")
         runtime.stop(container_id)
+        config.container_id = None
+        config.save()
 
 
 def _train_baseline(pipeline_box: dict, target_id: str, lines: list[str]) -> None:
@@ -401,17 +439,62 @@ def fim_baseline(
 
 @app.command("serve-ban-api")
 def serve_ban_api(
-    container_id: str = typer.Option(..., help="Container id/name to scope ban actions to"),
+    target_id: str = typer.Option(None, help="Target id — resolves its running container automatically, no raw docker ID needed"),
+    container_id: str = typer.Option(None, help="Container id/name to scope ban actions to, if not using --target-id"),
     host: str = typer.Option("127.0.0.1", help="Bind host — keep loopback-only in production"),
     port: int = typer.Option(8787),
 ) -> None:
     """Runs the local ban-action API standalone (e.g. against an already-running container)."""
+    container_id = _resolve_container_id(target_id, container_id)
     uvicorn.run(create_ban_app(container_id), host=host, port=port)
 
 
 @app.command()
+def stop(target_id: str = typer.Option(..., help="Target id — stops its running container")) -> None:
+    """Stops a target's container without needing its raw docker ID."""
+    config = AgentConfig.load(target_id)
+    if not config.container_id:
+        typer.echo(f"target={target_id!r} has no running container tracked")
+        raise typer.Exit(code=1)
+    ContainerRuntime().stop(config.container_id)
+    typer.echo(f"stopped container {config.container_id[:12]}")
+    config.container_id = None
+    config.save()
+
+
+@app.command()
+def logs(
+    target_id: str = typer.Option(..., help="Target id — tails its running container's logs"),
+    follow: bool = typer.Option(True, help="Keep streaming (Ctrl+C to stop); false prints what's buffered and exits"),
+) -> None:
+    """Tails a target's container logs without needing its raw docker ID."""
+    config = AgentConfig.load(target_id)
+    if not config.container_id:
+        typer.echo(f"target={target_id!r} has no running container tracked")
+        raise typer.Exit(code=1)
+    try:
+        for line in ContainerRuntime().logs(config.container_id, follow=follow, tail="all"):
+            typer.echo(line)
+    except KeyboardInterrupt:
+        pass
+
+
+def _resolve_container_id(target_id: str | None, container_id: str | None) -> str:
+    if container_id:
+        return container_id
+    if target_id:
+        config = AgentConfig.load(target_id)
+        if config.container_id:
+            return config.container_id
+        typer.echo(f"error: target={target_id!r} has no running container tracked")
+        raise typer.Exit(code=1)
+    typer.echo("error: pass --target-id or --container-id")
+    raise typer.Exit(code=1)
+
+
+@app.command()
 def status(target_id: str = typer.Option(...)) -> None:
-    """Prints the persisted config for a target."""
+    """Prints the persisted config for a target (includes its tracked container id, if running)."""
     config = AgentConfig.load(target_id)
     typer.echo(config.model_dump_json(indent=2))
 

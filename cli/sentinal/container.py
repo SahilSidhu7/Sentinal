@@ -50,9 +50,15 @@ class ContainerRuntime:
             raise ContainerError(f"docker run failed: {result.stderr.strip()}")
         return result.stdout.strip()
 
-    def logs(self, container_id: str, follow: bool = True) -> Iterator[str]:
-        """Streams stdout/stderr lines from the container, tailing from now."""
-        args = [self.docker_bin, "logs", "--tail", "0"]
+    def logs(self, container_id: str, follow: bool = True, tail: str = "0") -> Iterator[str]:
+        """Streams stdout/stderr lines from the container.
+
+        `tail="0"` (the default, used by `run`'s detection loop) means
+        "nothing before now" — replaying history into the anomaly pipeline
+        as if it just happened would be wrong. `sentinal logs` (for a human
+        wanting to actually see output) passes tail="all" instead.
+        """
+        args = [self.docker_bin, "logs", "--tail", tail]
         if follow:
             args.append("-f")
         args.append(container_id)
@@ -64,6 +70,17 @@ class ContainerRuntime:
                 yield line.rstrip("\n")
         finally:
             proc.terminate()
+
+    def build(self, context_dir: str, dockerfile: str, tag: str) -> None:
+        """Builds an image from `context_dir` using `dockerfile` (may live
+        outside `context_dir` — generated builds do, see build.py). Streams
+        build output to stdout as it happens rather than buffering it,
+        since a build can take a while and silent multi-minute hangs read
+        as broken."""
+        args = [self.docker_bin, "build", "-f", dockerfile, "-t", tag, context_dir]
+        result = subprocess.run(args)
+        if result.returncode != 0:
+            raise ContainerError(f"docker build failed (exit {result.returncode}) — see output above")
 
     def inspect(self, container_id: str) -> dict:
         """Returns the container's `docker inspect` config as a dict — the
