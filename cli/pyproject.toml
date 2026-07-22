@@ -2,7 +2,7 @@
 name = "sentinal"
 version = "0.1.0"
 description = "Sentinal sentinel-agent CLI: launches the monitored container, runs the backend startup scan, streams logs into /model, coordinates IP bans"
-requires-python = ">=3.11"
+requires-python = ">=3.10"  # no 3.11-only syntax/stdlib used; 3.10 covers Ubuntu 22.04 LTS's default python3
 dependencies = [
     "typer>=0.12",
     "click>=8.1",

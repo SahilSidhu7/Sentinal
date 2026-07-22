@@ -25,7 +25,15 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 echo "==> creating venv at .venv"
-python3 -m venv .venv
+if ! python3 -m venv .venv 2>/tmp/sentinal-venv-error.$$; then
+  cat /tmp/sentinal-venv-error.$$ >&2
+  rm -f /tmp/sentinal-venv-error.$$
+  echo "" >&2
+  echo "error: couldn't create the venv — Ubuntu/Debian's python3 often ships without the venv module." >&2
+  echo "Try: sudo apt install python3-venv    (or python3.<minor>-venv for your exact version), then re-run this script." >&2
+  exit 1
+fi
+rm -f /tmp/sentinal-venv-error.$$
 # shellcheck disable=SC1091
 source .venv/bin/activate
 python3 -m pip install --upgrade pip --quiet  # `pip install --upgrade pip` can fail on some platforms (pip can't overwrite its own running executable) -- `python -m pip` doesn't have that problem
