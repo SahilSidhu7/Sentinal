@@ -18,15 +18,18 @@ Python (Typer), `docker` CLI for container lifecycle, `watchdog` for FIM, FastAP
 ## Contract you depend on
 ```python
 from vibesentinel_model.pipeline import LogPipeline
+from vibesentinel_model import EscalationTracker, extract_source_ip
 ```
-See `/model/README.md` for `train()`/`detect()` signatures — don't wait on `/model` finishing the ONNX export step to start wiring the CLI skeleton; `sentinal.pipeline.get_pipeline()` returns `None` and degrades to tail-only if artifacts aren't there yet.
+See `/model/README.md` for `train()`/`detect()` signatures. `sentinal.pipeline.get_pipeline()` / `get_escalation_tracker()` return `None` and degrade to tail-only if `/model` isn't installed, or if a target has no trained baseline yet (`pipeline.train()` is a separate step this CLI doesn't call — a target needs a baseline trained before `run` will detect anything; until then it tails logs only).
+
+`run`'s log loop ships `log_anomaly` events per flagged line plus an `attack_event` whenever `EscalationTracker` sees enough sustained hits from one source IP (per-line noise is never enough on its own — see `/model/README.md`'s false-positive numbers).
 
 Also depends on `/backend`'s `POST /targets/{id}/scan` (startup checks) and `POST /agent/events/batch` / `/agent/register` (spec §6) — stub these against a mock backend until `/backend` ships them.
 
 ## Setup (once scaffolded)
 ```
 cd cli
-pip install -e .
+pip install -r requirements.txt   # installs /model editable too (-e ../model)
 sentinal register --target-id my-app --backend-url http://localhost:8000
 sentinal run --target-id my-app --image my-app:latest --port 8080:8080
 ```

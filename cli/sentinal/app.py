@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 
 import typer
 import uvicorn
@@ -18,7 +19,7 @@ from sentinal.client import CoreClient
 from sentinal.config import AgentConfig
 from sentinal.container import ContainerRuntime
 from sentinal.fim import FileIntegrityMonitor
-from sentinal.pipeline import get_pipeline
+from sentinal.pipeline import extract_source_ip, get_escalation_tracker, get_pipeline
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("sentinal")
@@ -111,35 +112,66 @@ def run(
         threading.Thread(target=fim.watch, args=(on_file_change,), daemon=True).start()
 
     pipeline = get_pipeline(target_id)
+    tracker = get_escalation_tracker()
     if pipeline is None:
         typer.echo("warning: anomaly detection disabled (no /model artifacts) — log tailing only")
 
+    state = {"pipeline": pipeline}
     buffer: list[str] = []
     try:
         for line in runtime.logs(container_id):
             buffer.append(line)
             if len(buffer) < batch_size:
                 continue
-            _flush(pipeline, client, target_id, buffer)
+            _flush(state, tracker, client, target_id, buffer)
             buffer = []
     except KeyboardInterrupt:
         pass
     finally:
         if buffer:
-            _flush(pipeline, client, target_id, buffer)
+            _flush(state, tracker, client, target_id, buffer)
         typer.echo(f"stopping container {container_id[:12]}")
         runtime.stop(container_id)
 
 
-def _flush(pipeline, client: CoreClient, target_id: str, lines: list[str]) -> None:
+def _flush(state: dict, tracker, client: CoreClient, target_id: str, lines: list[str]) -> None:
+    pipeline = state["pipeline"]
     if pipeline is None:
         return
-    results = pipeline.detect(lines)
-    events = [
-        {"type": "log_anomaly", "template": r.template, "flag": r.flag, "severity_score": r.severity_score}
-        for r in results
-        if r.flag == -1
-    ]
+
+    try:
+        results = pipeline.detect(lines)
+    except FileNotFoundError:
+        # No trained baseline for this target yet (run's `--volume`/log stream
+        # never calls pipeline.train() — that's a separate, explicit step).
+        # Degrade to tailing rather than raising out of the log loop every batch.
+        logger.warning("no trained model for target=%s — disabling detection for this run", target_id)
+        state["pipeline"] = None
+        return
+
+    now = time.time()
+    events = []
+    for line, r in zip(lines, results):
+        if r.flag != -1:
+            continue
+        events.append({"type": "log_anomaly", "template": r.template, "flag": r.flag, "severity_score": r.severity_score})
+
+        if tracker is None:
+            continue
+        source_ip = extract_source_ip(line)
+        if source_ip is None:
+            continue
+        attack_event = tracker.observe(source_ip, r, timestamp=now)
+        if attack_event is not None:
+            events.append({
+                "type": "attack_event",
+                "source_ip": attack_event.source_ip,
+                "confidence": attack_event.confidence,
+                "event_count": attack_event.event_count,
+                "suggested_action": attack_event.suggested_action,
+                "sample_templates": attack_event.sample_templates,
+            })
+
     if events:
         client.send_events(target_id, events)
 

@@ -11,6 +11,9 @@ class MalformedLogLine(Exception):
     """Raised for lines Drain3 cannot reduce to a usable template."""
 
 
+DEFAULT_STATE_DIR = Path(__file__).parent.parent / "artifacts" / "drain3_state"
+
+
 class LogTemplateExtractor:
     """Wraps a per-target Drain3 TemplateMiner with disk persistence.
 
@@ -18,7 +21,7 @@ class LogTemplateExtractor:
     should never share a tree, or unrelated services start colliding.
     """
 
-    def __init__(self, target_id: str, state_dir: str | Path = "./artifacts/drain3_state"):
+    def __init__(self, target_id: str, state_dir: str | Path = DEFAULT_STATE_DIR):
         self.target_id = target_id
         state_path = Path(state_dir) / f"{target_id}.bin"
         state_path.parent.mkdir(parents=True, exist_ok=True)

@@ -23,3 +23,24 @@ def get_pipeline(target_id: str):
     except Exception:
         logger.warning("LogPipeline init failed for target=%s — detection disabled", target_id, exc_info=True)
         return None
+
+
+def get_escalation_tracker():
+    """New EscalationTracker, or None if /model isn't installed.
+
+    One tracker per running agent process — its sliding window state must
+    survive across the whole log stream, not get rebuilt per batch.
+    """
+    try:
+        from vibesentinel_model import EscalationTracker
+    except ImportError:
+        return None
+    return EscalationTracker()
+
+
+def extract_source_ip(raw_line: str) -> str | None:
+    try:
+        from vibesentinel_model import extract_source_ip as _extract
+    except ImportError:
+        return None
+    return _extract(raw_line)

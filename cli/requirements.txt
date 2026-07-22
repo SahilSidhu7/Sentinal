@@ -4,3 +4,6 @@ watchdog>=4.0
 fastapi>=0.111
 uvicorn>=0.30
 pydantic>=2.7
+
+# local monorepo package, editable install (run from /cli)
+-e ../model
