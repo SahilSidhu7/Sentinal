@@ -21,10 +21,29 @@ CLI reference: [`cli/README.md`](cli/README.md).
 | `/backend`'s `vibesentinel_scanner` — startup vuln scan (secrets/CVE/docker-misconfig/weak-creds) | Working, tested |
 | `/cli` (`sentinal`) — registers targets, **builds + launches + monitors containers itself**, runs the scan, feeds logs into `/model`, serves the local ban API | Working, tested |
 | `/dashboard` — served directly by `/cli` on one port (JSON API + built UI) | Working, tested |
-| `/frontend` — marketing site | Exists, not part of the monitoring loop |
 | Core `/backend` FastAPI service (multi-target aggregation, auth, SQLite, audit log) | **Not built yet.** Everything above works standalone against one target with no core running — that's intentional (see `docs/SPEC.md` §7 trust boundaries), not a workaround. |
 
-## Install (Linux server)
+The marketing/landing site lives in its own repo now:
+[sentinal-landing](https://github.com/SahilSidhu7/sentinal-landing)
+(hosted at [sahilsidhu7.github.io/sentinal-landing](https://sahilsidhu7.github.io/sentinal-landing/)) — it isn't part of the monitoring loop and doesn't need to ship alongside this code.
+
+## Install
+
+One line, on any Linux server with `git`:
+
+```bash
+curl -fsSL https://sahilsidhu7.github.io/sentinal-landing/install.sh | bash
+```
+
+That clones this repo and runs `scripts/install.sh` for you — the only
+manual step either way, since bootstrapping Python/pip can't itself be a
+`sentinal` command before `sentinal` exists. It creates a `.venv`, installs
+`/model` + `/backend` + `/cli` (editable), exports the ONNX embedding
+model, and builds the dashboard's static assets. Each step degrades
+gracefully and tells you what to do manually if it can't reach the network
+or a tool (Docker, Node.js) isn't installed.
+
+Prefer to clone yourself first:
 
 ```bash
 git clone https://github.com/SahilSidhu7/Sentinal.git
@@ -32,20 +51,15 @@ cd Sentinal
 ./scripts/install.sh
 ```
 
-This is the one unavoidable manual step — bootstrapping Python/pip itself
-can't be a `sentinal` command before `sentinal` exists. It creates a
-`.venv`, installs `/model` + `/backend` + `/cli` (editable), exports the
-ONNX embedding model, and builds the dashboard's static assets. Each step
-degrades gracefully and tells you what to do manually if it can't reach the
-network or a tool (Docker, Node.js) isn't installed — see the script's
-output.
+Either way, finish with:
 
 ```bash
+cd Sentinal   # if you used the one-liner
 source .venv/bin/activate
 sentinal --help
 ```
 
-Windows/dev: skip the script, run the equivalent steps by hand (see
+Windows/dev: skip both, run the equivalent steps by hand (see
 [`cli/README.md`](cli/README.md) "Setup").
 
 **After install, every feature is a `sentinal` command** — building images,
@@ -178,7 +192,6 @@ whether or not a core backend is aggregating them.
 ## Project layout
 
 ```
-/frontend   Marketing site (not part of the monitoring loop yet)
 /cli        sentinal — the agent CLI: registration, image build + container
             lifecycle, log tailing, startup scan, ban API, dashboard status API
 /model      Drain3 + ONNX embedding + Isolation Forest — vibesentinel_model
@@ -189,6 +202,8 @@ whether or not a core backend is aggregating them.
 /scripts    install.sh / upgrade.sh (the one manual bootstrap step and its
             update path — everything after install is a sentinal command)
 ```
+
+Marketing site: separate repo, [sentinal-landing](https://github.com/SahilSidhu7/sentinal-landing) (also hosts the one-line installer above).
 
 Each folder's README has its team's scope and the cross-folder contracts it
 depends on — see `docs/SPEC.md` §11.1 / `TEAM.md`.

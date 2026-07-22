@@ -4,7 +4,7 @@ Each teammate works on their own branch, in their own folder. Read your folder's
 
 | Teammate role | Branch | Folder | Core feature owned |
 |---|---|---|---|
-| Frontend | `frontend` | `/frontend` | Dashboard management (main multi-target web dashboard) |
+| Frontend | (moved out) | [`sentinal-landing`](https://github.com/SahilSidhu7/sentinal-landing) repo | Marketing/landing site — split out so it deploys independently on GitHub Pages, separate from this repo's release cycle |
 | CLI / Agent | `cli` | `/cli` | Live monitoring (log tailing, FIM, ships to core, local ban API) |
 | Model / ML | `model` | `/model` | Vulnerability test — anomaly detection (Drain3 + ONNX + Isolation Forest) |
 | Dashboard (local) | `dashboard` | `/dashboard` | Dashboard management (thin localhost status site shipped with `/cli`) |
