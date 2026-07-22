@@ -17,7 +17,6 @@ import threading
 import time
 from pathlib import Path
 
-import click
 import typer
 import uvicorn
 
@@ -56,11 +55,14 @@ def main_callback(
 
 
 @app.command()
-def help() -> None:
+def help(ctx: typer.Context) -> None:
     """Show all available commands (same as --help)."""
-    ctx = click.get_current_context()
-    root = ctx.find_root()
-    typer.echo(root.get_help())
+    # Take the context Typer/Click hands this command directly rather than
+    # click.get_current_context() -- that one relies on a thread-local
+    # context stack that isn't reliably populated the same way across
+    # click versions (worked in dev, raised RuntimeError on a clean
+    # Ubuntu/Python 3.10 install with a newer click).
+    typer.echo(ctx.find_root().get_help())
 
 
 @app.command()
