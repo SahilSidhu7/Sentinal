@@ -28,7 +28,7 @@ echo "==> creating venv at .venv"
 python3 -m venv .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate
-pip install --upgrade pip --quiet
+python3 -m pip install --upgrade pip --quiet  # `pip install --upgrade pip` can fail on some platforms (pip can't overwrite its own running executable) -- `python -m pip` doesn't have that problem
 
 echo "==> installing model + backend + cli (editable)"
 pip install -e ./model --quiet
