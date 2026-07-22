@@ -1,15 +1,13 @@
-// Client for the local status feed served by /cli (docs/SPEC.md §6, §8).
-// Shape here mirrors the shared findings/attack-event contract used by
-// /backend and /cli — confirm exact field names with Team B before relying
-// on anything beyond what's listed in mockData.js.
+// Client for /cli's local status feed (docs/SPEC.md §6, §8). Real fetch
+// first; falls back to mockData.js when /cli isn't reachable yet so the UI
+// stays usable during development. Field shapes mirror the shared
+// findings/attack-event contract used by /backend and /cli.
 
-import { mockScore, mockFindings, mockAttacks, mockBans } from './mockData'
-
-const BASE = ''
+import { mockScore, mockFindings, mockAttackEvents, mockSettings } from './mockData'
 
 async function getJSON(path, fallback) {
   try {
-    const res = await fetch(`${BASE}${path}`)
+    const res = await fetch(path)
     if (!res.ok) throw new Error(`${path} -> ${res.status}`)
     return await res.json()
   } catch (err) {
@@ -26,40 +24,37 @@ export function getFindings() {
   return getJSON('/api/findings', mockFindings)
 }
 
-export function getFinding(id) {
-  return getJSON(`/api/findings/${id}`, mockFindings.find((f) => f.id === id) ?? null)
-}
-
 export function getAttacks() {
-  return getJSON('/api/attacks', mockAttacks)
+  return getJSON('/api/attacks', mockAttackEvents)
 }
 
-export function getBans() {
-  return getJSON('/api/bans', mockBans)
+export function getSettings() {
+  return getJSON('/api/settings', mockSettings)
 }
 
-export async function dismissFinding(id) {
+export async function saveSettings(settings) {
   try {
-    await fetch(`/api/findings/${id}/dismiss`, { method: 'POST' })
-  } catch (err) {
-    console.warn('[dashboard] dismiss failed (agent unreachable):', err.message)
-  }
-}
-
-export async function banIp(attackId, ttlSeconds) {
-  try {
-    await fetch(`/api/attacks/${attackId}/ban`, {
+    const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ttl: ttlSeconds }),
+      body: JSON.stringify(settings),
     })
+    if (!res.ok) throw new Error(`settings -> ${res.status}`)
+    return await res.json()
   } catch (err) {
-    console.warn('[dashboard] ban failed (agent unreachable):', err.message)
+    console.warn('[dashboard] settings save failed (agent unreachable):', err.message)
+    return settings
   }
 }
 
-// Live feed over the agent's local WS (falls back to null if unreachable —
-// callers should keep rendering whatever they last polled via REST).
+export async function respondToAttack(id, action) {
+  try {
+    await fetch(`/api/attacks/${id}/${action}`, { method: 'POST' })
+  } catch (err) {
+    console.warn(`[dashboard] ${action} failed (agent unreachable):`, err.message)
+  }
+}
+
 export function connectLiveFeed(onEvent) {
   let ws
   try {
