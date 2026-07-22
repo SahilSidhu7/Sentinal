@@ -1,3 +1,5 @@
+import { Reveal } from "../components/Reveal";
+
 const SECTIONS = [
   {
     id: "overview",
@@ -49,7 +51,7 @@ export function Docs() {
             <a
               key={section.id}
               href={`#${section.id}`}
-              className="block rounded-md px-3 py-1.5 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+              className="block rounded-md px-3 py-1.5 text-slate-400 transition-colors duration-200 ease-out hover:bg-slate-800/60 hover:text-slate-200"
             >
               {section.title}
             </a>
@@ -58,16 +60,18 @@ export function Docs() {
       </aside>
 
       <div className="min-w-0 flex-1 space-y-12">
-        <h1 className="text-2xl font-semibold text-white">Documentation</h1>
-        {SECTIONS.map((section) => (
-          <section key={section.id} id={section.id} className="scroll-mt-8">
+        <Reveal as="h1" className="text-2xl font-semibold text-white">
+          Documentation
+        </Reveal>
+        {SECTIONS.map((section, i) => (
+          <Reveal key={section.id} as="section" delayMs={i === 0 ? 80 : 0} id={section.id} className="scroll-mt-8">
             <h2 className="mb-3 text-lg font-semibold text-white">{section.title}</h2>
             <div className="space-y-3 text-sm leading-relaxed text-slate-400">
               {section.body.map((paragraph, i) => (
                 <p key={i}>{paragraph}</p>
               ))}
             </div>
-          </section>
+          </Reveal>
         ))}
       </div>
     </div>

@@ -12,6 +12,9 @@ export function TerminalPreview({ lines }: { lines: string[] }) {
           <div key={i} className="flex gap-2">
             <span className="text-slate-500">$</span>
             <span className="text-slate-200">{line}</span>
+            {i === lines.length - 1 && (
+              <span className="cursor-blink inline-block h-4 w-[7px] translate-y-[1px] bg-slate-400" />
+            )}
           </div>
         ))}
       </div>

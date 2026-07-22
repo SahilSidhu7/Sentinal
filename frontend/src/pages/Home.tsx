@@ -4,6 +4,7 @@ import { TerminalPreview } from "../components/TerminalPreview";
 import { NumberedCard } from "../components/NumberedCard";
 import { ArchitectureDiagram } from "../components/ArchitectureDiagram";
 import { FaqCard } from "../components/FaqCard";
+import { Reveal } from "../components/Reveal";
 import { ActIcon, DetectIcon, ScanIcon, ShowIcon } from "../components/icons";
 
 const PROBLEMS = [
@@ -91,94 +92,102 @@ const FAQS = [
   },
 ];
 
+const PRIMARY_BUTTON =
+  "rounded-md bg-sky-500 px-5 py-2.5 text-sm font-medium text-white transition-all duration-200 ease-out hover:bg-sky-400 hover:shadow-lg hover:shadow-sky-500/20 active:scale-[0.97]";
+const SECONDARY_BUTTON =
+  "rounded-md border border-slate-700 px-5 py-2.5 text-sm font-medium text-slate-200 transition-all duration-200 ease-out hover:bg-slate-800 hover:shadow-lg hover:shadow-black/20 active:scale-[0.97]";
+
 export function Home() {
   return (
     <div>
       <section className="mx-auto max-w-4xl px-6 py-24 text-center">
-        <div className="mb-6 flex justify-center">
+        <Reveal className="mb-6 flex justify-center">
           <Badge>Local-first security monitoring</Badge>
-        </div>
-        <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+        </Reveal>
+        <Reveal delayMs={80} as="h1" className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
           Security monitoring for the machines you actually run.
-        </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-400">
+        </Reveal>
+        <Reveal
+          delayMs={160}
+          as="p"
+          className="mx-auto mt-6 max-w-2xl text-lg text-slate-400"
+        >
           Sentinal watches your local machine or self-hosted server, scans it for security
           issues, detects live attacks with a fully local anomaly pipeline, and gives you a
           dashboard to see and respond to it all — without shipping your raw logs anywhere.
-        </p>
-        <div className="mt-10 flex justify-center gap-4">
-          <Link
-            to="/install"
-            className="rounded-md bg-sky-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-400"
-          >
+        </Reveal>
+        <Reveal delayMs={240} className="mt-10 flex justify-center gap-4">
+          <Link to="/install" className={PRIMARY_BUTTON}>
             Get started
           </Link>
-          <Link
-            to="/docs"
-            className="rounded-md border border-slate-700 px-5 py-2.5 text-sm font-medium text-slate-200 hover:bg-slate-800"
-          >
+          <Link to="/docs" className={SECONDARY_BUTTON}>
             Read the docs
           </Link>
-        </div>
-        <div className="mt-12">
+        </Reveal>
+        <Reveal delayMs={320} className="mt-12">
           <TerminalPreview lines={["docker-compose up -d"]} />
-        </div>
+        </Reveal>
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-20">
-        <h2 className="text-center text-3xl font-bold tracking-tight text-white sm:text-4xl">
+        <Reveal as="h2" className="text-center text-3xl font-bold tracking-tight text-white sm:text-4xl">
           Security tools that watch you back.
-        </h2>
-        <p className="mx-auto mt-4 max-w-xl text-center text-sm text-slate-400">
+        </Reveal>
+        <Reveal delayMs={80} as="p" className="mx-auto mt-4 max-w-xl text-center text-sm text-slate-400">
           Most monitoring platforms ask you to trust a stranger with your incident data. Sentinal
           doesn't ask.
-        </p>
+        </Reveal>
         <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
-          {PROBLEMS.map((problem) => (
-            <NumberedCard key={problem.number} {...problem} />
+          {PROBLEMS.map((problem, i) => (
+            <Reveal key={problem.number} delayMs={i * 90}>
+              <NumberedCard {...problem} />
+            </Reveal>
           ))}
         </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-20">
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {FEATURES.map((feature) => {
+          {FEATURES.map((feature, i) => {
             const Icon = feature.icon;
             return (
-              <div
-                key={feature.title}
-                className="rounded-xl border border-slate-800 bg-slate-900/60 p-6"
-              >
-                <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
-                  <Icon className="h-5 w-5" />
+              <Reveal key={feature.title} delayMs={i * 90}>
+                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 transition-transform duration-200 ease-out hover:scale-[1.02]">
+                  <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-base font-bold text-white">{feature.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
+                    {feature.description}
+                  </p>
                 </div>
-                <h3 className="text-base font-bold text-white">{feature.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
-                  {feature.description}
-                </p>
-              </div>
+              </Reveal>
             );
           })}
         </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-20">
-        <h2 className="text-center text-2xl font-bold text-white">Why local-first</h2>
-        <p className="mx-auto mt-3 max-w-xl text-center text-sm text-slate-400">
+        <Reveal as="h2" className="text-center text-2xl font-bold text-white">
+          Why local-first
+        </Reveal>
+        <Reveal delayMs={80} as="p" className="mx-auto mt-3 max-w-xl text-center text-sm text-slate-400">
           Not a promise — a boundary built into the architecture.
-        </p>
+        </Reveal>
         <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
-          {TRUST_POINTS.map((point) => (
-            <div key={point.title} className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-              <h3 className="text-base font-semibold text-white">{point.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-slate-400">{point.description}</p>
-            </div>
+          {TRUST_POINTS.map((point, i) => (
+            <Reveal key={point.title} delayMs={i * 90}>
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 transition-transform duration-200 ease-out hover:scale-[1.02]">
+                <h3 className="text-base font-semibold text-white">{point.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-400">{point.description}</p>
+              </div>
+            </Reveal>
           ))}
         </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-6 py-20">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-10">
+        <Reveal className="rounded-xl border border-slate-800 bg-slate-900/60 p-10">
           <h2 className="text-center text-2xl font-semibold text-white">Two deployable pieces</h2>
           <p className="mx-auto mt-3 max-w-2xl text-center text-sm text-slate-400">
             Run the core backend and dashboard with{" "}
@@ -189,39 +198,37 @@ export function Home() {
           <div className="mt-10">
             <ArchitectureDiagram />
           </div>
-        </div>
+        </Reveal>
       </section>
 
       <section className="mx-auto max-w-4xl px-6 py-20">
-        <h2 className="text-center text-2xl font-bold text-white">FAQ</h2>
+        <Reveal as="h2" className="text-center text-2xl font-bold text-white">
+          FAQ
+        </Reveal>
         <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2">
-          {FAQS.map((faq) => (
-            <FaqCard key={faq.question} question={faq.question} answer={faq.answer} />
+          {FAQS.map((faq, i) => (
+            <Reveal key={faq.question} delayMs={i * 90}>
+              <FaqCard question={faq.question} answer={faq.answer} />
+            </Reveal>
           ))}
         </div>
       </section>
 
       <section className="mx-auto max-w-4xl px-6 py-24 text-center">
-        <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+        <Reveal as="h2" className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
           Run your own security monitoring.
-        </h2>
-        <p className="mx-auto mt-4 max-w-xl text-lg text-slate-400">
+        </Reveal>
+        <Reveal delayMs={80} as="p" className="mx-auto mt-4 max-w-xl text-lg text-slate-400">
           Self-hosted, open-source, no data leaves your infrastructure.
-        </p>
-        <div className="mt-10 flex justify-center gap-4">
-          <Link
-            to="/install"
-            className="rounded-md bg-sky-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-sky-400"
-          >
+        </Reveal>
+        <Reveal delayMs={160} className="mt-10 flex justify-center gap-4">
+          <Link to="/install" className={PRIMARY_BUTTON}>
             Get started
           </Link>
-          <Link
-            to="/docs"
-            className="rounded-md border border-slate-700 px-5 py-2.5 text-sm font-medium text-slate-200 hover:bg-slate-800"
-          >
+          <Link to="/docs" className={SECONDARY_BUTTON}>
             Read the docs
           </Link>
-        </div>
+        </Reveal>
       </section>
     </div>
   );
