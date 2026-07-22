@@ -26,3 +26,25 @@ def test_get_pipeline_without_model_package_returns_none() -> None:
     # /model may not be installed in this environment yet — must degrade, not raise.
     pipeline = get_pipeline("smoke-test-target")
     assert pipeline is None or hasattr(pipeline, "detect")
+
+
+def test_version_flag() -> None:
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "sentinal" in result.output
+
+
+def test_help_command_matches_help_flag() -> None:
+    result = runner.invoke(app, ["help"])
+    assert result.exit_code == 0
+    assert "Commands" in result.output
+    assert "register" in result.output
+
+
+def test_upgrade_refuses_outside_git_checkout(tmp_path, monkeypatch) -> None:
+    import sentinal.app as app_module
+
+    monkeypatch.setattr(app_module, "REPO_ROOT", tmp_path)
+    result = runner.invoke(app, ["upgrade"])
+    assert result.exit_code != 0
+    assert "git checkout" in result.output

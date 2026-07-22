@@ -11,12 +11,17 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
+import click
 import typer
 import uvicorn
 
+from sentinal import __version__
 from sentinal.ban_api import create_app as create_ban_app
 from sentinal.client import CoreClient
 from sentinal.config import AgentConfig
@@ -30,7 +35,61 @@ from sentinal.state import AgentState
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("sentinal")
 
+REPO_ROOT = Path(__file__).resolve().parents[2]  # cli/sentinal/app.py -> repo root
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"sentinal {__version__}")
+        raise typer.Exit()
+
+
 app = typer.Typer(help="Sentinal sentinel-agent CLI")
+
+
+@app.callback()
+def main_callback(
+    version: bool = typer.Option(False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit"),
+) -> None:
+    pass
+
+
+@app.command()
+def help() -> None:
+    """Show all available commands (same as --help)."""
+    ctx = click.get_current_context()
+    root = ctx.find_root()
+    typer.echo(root.get_help())
+
+
+@app.command()
+def upgrade(
+    skip_dashboard_build: bool = typer.Option(False, help="Skip rebuilding /dashboard's static assets"),
+) -> None:
+    """Pulls the latest code and reinstalls (editable) — run from a git checkout.
+
+    Equivalent to scripts/upgrade.sh, exposed here so `sentinal upgrade` works
+    once the CLI itself is on PATH, without needing the repo's script path.
+    """
+    if not (REPO_ROOT / ".git").exists():
+        typer.echo(f"error: {REPO_ROOT} isn't a git checkout — can't self-upgrade. Pull manually and reinstall.")
+        raise typer.Exit(code=1)
+
+    typer.echo(f"pulling latest into {REPO_ROOT} ...")
+    subprocess.run(["git", "pull"], cwd=REPO_ROOT, check=True)
+
+    for pkg in ("model", "backend", "cli"):
+        typer.echo(f"reinstalling {pkg} (editable) ...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "-e", str(REPO_ROOT / pkg)], check=True)
+
+    if not skip_dashboard_build and (REPO_ROOT / "dashboard").exists():
+        typer.echo("rebuilding dashboard ...")
+        result = subprocess.run(["npm", "run", "build"], cwd=REPO_ROOT / "dashboard")
+        if result.returncode != 0:
+            typer.echo("warning: dashboard build failed — npm installed? run `npm ci` in /dashboard and retry.")
+
+    version = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True)
+    typer.echo(f"upgraded to {version.stdout.strip()}")
 
 
 @app.command()
