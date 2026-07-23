@@ -1,33 +1,54 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
+import { login as loginRequest, verifyToken } from './api'
 
-// /dashboard has no backend session infra (docs/SPEC.md's /dashboard scope
-// is intentionally no-auth, single-operator-on-the-box). This login is a
-// fully local, client-side gate — no network call — matching the exported
-// prototype's simulated-delay behavior exactly.
+// The dashboard is served by /cli's local status API (local_api.py), which
+// mints one session token per `sentinal run` process and checks it against
+// an admin password (--admin-password / $SENTINAL_ADMIN_PASSWORD, defaults
+// to 'admin'). Single-operator, process-local — not the core backend's auth.
 
+const TOKEN_KEY = 'sentinel_local_token'
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('sentinel_local_token'))
+  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
+  const [checking, setChecking] = useState(true)
 
-  function login(username) {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const newToken = `local-${username}`
-        localStorage.setItem('sentinel_local_token', newToken)
-        setToken(newToken)
-        resolve()
-      }, 1500)
+  useEffect(() => {
+    let cancelled = false
+    if (!token) {
+      setChecking(false)
+      return
+    }
+    verifyToken(token).then((ok) => {
+      if (cancelled) return
+      if (!ok) {
+        localStorage.removeItem(TOKEN_KEY)
+        setToken(null)
+      }
+      setChecking(false)
     })
+    return () => {
+      cancelled = true
+    }
+    // Only re-verify when the token itself changes (e.g. after login/logout).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+
+  async function login(password) {
+    const newToken = await loginRequest(password)
+    localStorage.setItem(TOKEN_KEY, newToken)
+    setToken(newToken)
   }
 
   function logout() {
-    localStorage.removeItem('sentinel_local_token')
+    localStorage.removeItem(TOKEN_KEY)
     setToken(null)
   }
 
-  return <AuthContext.Provider value={{ token, login, logout }}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={{ token, login, logout, checking }}>{children}</AuthContext.Provider>
+  )
 }
 
 export function useAuth() {
@@ -35,8 +56,11 @@ export function useAuth() {
 }
 
 export function RequireAuth({ children }) {
-  const { token } = useAuth()
+  const { token, checking } = useAuth()
   const location = useLocation()
+  if (checking) {
+    return null
+  }
   if (!token) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }

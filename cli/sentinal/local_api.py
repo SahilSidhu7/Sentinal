@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -50,50 +51,81 @@ def _normalize_container(raw: dict) -> dict:
 class SettingsUpdate(BaseModel):
     operator_name: str | None = None
     email: str | None = None
+    department: str | None = None
+    two_factor_enabled: bool | None = None
+    session_timeout_enabled: bool | None = None
+    ip_whitelist: str | None = None
     notify_critical_alerts: bool | None = None
     notify_log_summaries: bool | None = None
+    notify_marketing: bool | None = None
 
 
-def create_app(state: AgentState, runtime: ContainerRuntime | None = None) -> FastAPI:
+class LoginRequest(BaseModel):
+    password: str
+
+
+def create_app(state: AgentState, runtime: ContainerRuntime | None = None, admin_password: str = "admin") -> FastAPI:
     app = FastAPI(title="sentinal local status API")
     runtime = runtime or ContainerRuntime()
+
+    # Single-operator, process-local session: one token minted per `sentinal
+    # run` process, invalidated on restart. No user table / bcrypt needed —
+    # this is a local status site (spec §8), not the core backend's auth.
+    session_token = secrets.token_urlsafe(32)
+
+    def require_auth(authorization: str | None = Header(default=None)) -> None:
+        if authorization != f"Bearer {session_token}":
+            raise HTTPException(status_code=401, detail="not authenticated")
 
     @app.on_event("startup")
     async def _bind_loop() -> None:
         state.set_event_loop(asyncio.get_running_loop())
 
+    @app.post("/api/auth/login")
+    def login(body: LoginRequest) -> dict:
+        if not secrets.compare_digest(body.password, admin_password):
+            raise HTTPException(status_code=401, detail="incorrect password")
+        return {"token": session_token}
+
+    @app.get("/api/auth/verify")
+    def verify(_: None = Depends(require_auth)) -> dict:
+        return {"ok": True}
+
     @app.get("/api/score")
-    def get_score() -> dict:
+    def get_score(_: None = Depends(require_auth)) -> dict:
         return state.score()
 
     @app.get("/api/findings")
-    def get_findings() -> list[dict]:
+    def get_findings(_: None = Depends(require_auth)) -> list[dict]:
         return state.findings
 
     @app.get("/api/attacks")
-    def get_attacks() -> list[dict]:
+    def get_attacks(_: None = Depends(require_auth)) -> list[dict]:
         return state.attacks
 
     @app.post("/api/attacks/{attack_id}/{action}")
-    def respond_to_attack(attack_id: str, action: str) -> dict:
+    def respond_to_attack(attack_id: str, action: str, _: None = Depends(require_auth)) -> dict:
         ok = state.resolve_attack(attack_id, action)
         return {"ok": ok}
 
     @app.get("/api/settings")
-    def get_settings() -> dict:
+    def get_settings(_: None = Depends(require_auth)) -> dict:
         return state.settings
 
     @app.post("/api/settings")
-    def save_settings(update: SettingsUpdate) -> dict:
+    def save_settings(update: SettingsUpdate, _: None = Depends(require_auth)) -> dict:
         state.settings.update({k: v for k, v in update.model_dump().items() if v is not None})
         return state.settings
 
     @app.get("/api/containers")
-    def get_containers() -> list[dict]:
+    def get_containers(_: None = Depends(require_auth)) -> list[dict]:
         return [_normalize_container(c) for c in runtime.ps()]
 
     @app.websocket("/ws/live")
-    async def live_feed(ws: WebSocket) -> None:
+    async def live_feed(ws: WebSocket, token: str | None = None) -> None:
+        if token != session_token:
+            await ws.close(code=4401)
+            return
         await ws.accept()
         queue = state.subscribe()
         try:

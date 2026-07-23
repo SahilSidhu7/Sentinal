@@ -24,8 +24,13 @@ def _next_id(prefix: str) -> str:
 DEFAULT_SETTINGS = {
     "operator_name": "",
     "email": "",
+    "department": "Cyber-Defense Intelligence",
+    "two_factor_enabled": False,
+    "session_timeout_enabled": True,
+    "ip_whitelist": "",
     "notify_critical_alerts": True,
     "notify_log_summaries": False,
+    "notify_marketing": False,
 }
 
 

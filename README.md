@@ -20,7 +20,7 @@ CLI reference: [`cli/README.md`](cli/README.md).
 | `/model` — Drain3 + ONNX MiniLM + Isolation Forest, 5 pretrained dataset baselines shipped | Working, tested (see `model/README.md`) |
 | `/backend`'s `vibesentinel_scanner` — startup vuln scan (secrets/CVE/docker-misconfig/weak-creds) | Working, tested |
 | `/cli` (`sentinal`) — registers targets, **builds + launches + monitors containers itself**, runs the scan, feeds logs into `/model`, serves the local ban API | Working, tested |
-| `/dashboard` — served directly by `/cli` on one port (JSON API + built UI) | Working, tested |
+| `/dashboard` — served directly by `/cli` on one port (JSON API + built UI), admin-password login, in-app Documentation page rendering this README | Working, tested |
 | Core `/backend` FastAPI service (multi-target aggregation, auth, SQLite, audit log) | **Not built yet.** Everything above works standalone against one target with no core running — that's intentional (see `docs/SPEC.md` §7 trust boundaries), not a workaround. |
 
 The marketing/landing site lives in its own repo now:
@@ -96,7 +96,10 @@ required from you. `sentinal start` (an alias for `run`):
      attack patterns.
    - Serves **the dashboard UI and its JSON API together** on one port
      (`--status-api-port`, default **8765**) — open
-     `http://<this-host>:8765` in a browser.
+     `http://<this-host>:8765` in a browser, gated behind a single
+     admin-password login (`--admin-password`/`$SENTINAL_ADMIN_PASSWORD`,
+     defaults to `admin` with a printed warning) — see `cli/README.md`'s
+     `run` options table.
    - Serves the local ban-action API (`--ban-api-port`, default 8787) for
      IP-ban coordination.
 6. **Tracks the running container and background process against its
@@ -151,7 +154,7 @@ script you run by hand.
 |---|---|---|---|
 | `register` | `--target-id`, `--backend-url` | — | Registers a target, persists its config (backend URL, token, later its container id and background pid) to `~/.sentinal/<target_id>.json`. Degrades to a tokenless local registration if core is unreachable. `run`/`start` do this automatically if you skip it. |
 | `scan` | `--target-id` | `--volume` (repeatable) | Runs the startup vulnerability scan standalone — no container needs to be running. Good for checking source before deploying it, or re-scanning one that's already up. |
-| `run` / `start` | none — all optional | `--target-id`; one of `--path`/`--image` (defaults `--path` to `.`); `--port`, `--env`, `--volume` (all repeatable); `--name`; `--force`; `--foreground`; `--ban-api-port` (8787); `--status-api-port` (8765); `--batch-size` (50); `--baseline-lines` (200); `--seed-model` (`nginx`); `--retrain-every` (500) | Builds (if `--path`) and launches the container, runs the startup scan synchronously, then hands the watch loop off to a background process and returns — see "Quick start" above. `start` is an alias for `run`. Full option table in `cli/README.md`. |
+| `run` / `start` | none — all optional | `--target-id`; one of `--path`/`--image` (defaults `--path` to `.`); `--port`, `--env`, `--volume` (all repeatable); `--name`; `--force`; `--foreground`; `--ban-api-port` (8787); `--status-api-port` (8765); `--batch-size` (50); `--baseline-lines` (200); `--seed-model` (`nginx`); `--retrain-every` (500); `--admin-password` (`$SENTINAL_ADMIN_PASSWORD`, else `admin`) | Builds (if `--path`) and launches the container, runs the startup scan synchronously, then hands the watch loop off to a background process and returns — see "Quick start" above. `start` is an alias for `run`. Full option table in `cli/README.md`. |
 | `stop` | `--target-id` | — | Stops the target's background monitor (if any) and its tracked container. |
 | `logs` | `--target-id` | `--follow`/`--no-follow` (default follow) | Tails the target's tracked container's output. |
 | `status` | `--target-id` | — | Prints the target's full persisted config as JSON (container id, background pid) and whether that pid is actually still running. |

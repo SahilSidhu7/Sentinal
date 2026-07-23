@@ -84,6 +84,15 @@ def _generate_session_id(seed: str) -> str:
             return candidate
 
 
+def _resolve_admin_password(admin_password: str | None) -> str:
+    if admin_password is None:
+        admin_password = os.environ.get("SENTINAL_ADMIN_PASSWORD")
+    if admin_password is None:
+        admin_password = "admin"
+        typer.echo("warning: no --admin-password/$SENTINAL_ADMIN_PASSWORD set — dashboard login defaults to 'admin'")
+    return admin_password
+
+
 def _docker_permission_hint(message: str) -> str | None:
     if "permission denied" in message.lower() and "docker.sock" in message.lower():
         return (
@@ -241,6 +250,10 @@ def run(
         "loop off to a background process (Ctrl+C to stop). Useful under systemd/a process supervisor, "
         "or for debugging."
     ),
+    admin_password: str = typer.Option(
+        None, help="Password to log into the dashboard. Defaults to $SENTINAL_ADMIN_PASSWORD, or 'admin' "
+        "with a printed warning if neither is set — change this for anything beyond local testing."
+    ),
 ) -> None:
     """Builds (if --path) and launches the container, blocks on the startup
     scan, then hands the watch loop off to a background process and returns
@@ -339,10 +352,12 @@ def run(
     except Exception:
         logger.debug("core unreachable for startup findings — continuing (dashboard still has them)", exc_info=True)
 
+    admin_password = _resolve_admin_password(admin_password)
+
     loop_kwargs = dict(
         volume=volume, ban_api_port=ban_api_port, status_api_port=status_api_port,
         batch_size=batch_size, baseline_lines=baseline_lines, seed_model=seed_model,
-        retrain_every=retrain_every,
+        retrain_every=retrain_every, admin_password=admin_password,
     )
 
     if foreground:
@@ -391,6 +406,7 @@ def monitor(
     baseline_lines: int = typer.Option(200),
     seed_model: str = typer.Option("nginx"),
     retrain_every: int = typer.Option(500),
+    admin_password: str = typer.Option("admin"),
 ) -> None:
     """Internal: runs the background watch loop for a target `run`/`start`
     already launched a container for. Not meant to be invoked directly —
@@ -415,7 +431,7 @@ def monitor(
         target_id, config, client, runtime, config.container_id, findings,
         volume=volume, ban_api_port=ban_api_port, status_api_port=status_api_port,
         batch_size=batch_size, baseline_lines=baseline_lines, seed_model=seed_model,
-        retrain_every=retrain_every, findings_are_dicts=True,
+        retrain_every=retrain_every, admin_password=admin_password, findings_are_dicts=True,
     )
 
 
@@ -434,6 +450,7 @@ def _monitor_body(
     baseline_lines: int,
     seed_model: str,
     retrain_every: int,
+    admin_password: str,
     findings_are_dicts: bool = False,
 ) -> None:
     """The actual watch loop: ban API + dashboard status API + FIM + log
@@ -455,7 +472,7 @@ def _monitor_body(
 
     status_thread = threading.Thread(
         target=uvicorn.run,
-        args=(create_status_app(agent_state, runtime),),
+        args=(create_status_app(agent_state, runtime, admin_password=admin_password),),
         kwargs={"host": "127.0.0.1", "port": status_api_port, "log_level": "warning"},
         daemon=True,
     )
