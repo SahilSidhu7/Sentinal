@@ -77,6 +77,9 @@ The main loop. `start` is an alias for `run` for the one-command path. `--target
 | `--baseline-lines` | 200 | Lines to auto-train a fresh target's baseline on, if not seeding. |
 | `--seed-model` | `nginx` | Pretrained dataset baseline to seed detection from (`nginx`/`loghub-apache`/`loghub-linux`/`loghub-ssh`/`csic2010`, see `model/README.md`'s eval table) — `none` to cold-start on the target's own traffic instead (do this when your log format doesn't resemble any shipped dataset). |
 | `--retrain-every` | 500 | Retrain the baseline after this many freshly observed normal-traffic lines (continuous improvement) — `0` disables. |
+| `--admin-password` | `$SENTINAL_ADMIN_PASSWORD`, else `admin` | Password required to log into the dashboard at `--status-api-port`. Falling back to `admin` prints a warning — set this (or the env var) to anything beyond local testing. |
+
+The dashboard login is a single admin password, checked by `--status-api-port`'s API (`POST /api/auth/login`) against `--admin-password`/`$SENTINAL_ADMIN_PASSWORD` — it mints one session token per `run` process, so restarting `sentinal run` logs everyone out. This is the local, single-operator status site's auth (spec §8), not the core backend's (not built yet).
 
 If `--path` is given and you didn't pass your own `--volume`, the source directory is auto-mounted read-accessible at `/app_source` so the startup scanner can see it (secrets/dependency files) even when your Dockerfile's own `COPY` step already baked the source into the image.
 

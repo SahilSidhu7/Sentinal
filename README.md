@@ -20,7 +20,7 @@ CLI reference: [`cli/README.md`](cli/README.md).
 | `/model` — Drain3 + ONNX MiniLM + Isolation Forest, 5 pretrained dataset baselines shipped | Working, tested (see `model/README.md`) |
 | `/backend`'s `vibesentinel_scanner` — startup vuln scan (secrets/CVE/docker-misconfig/weak-creds) | Working, tested |
 | `/cli` (`sentinal`) — registers targets, **builds + launches + monitors containers itself**, runs the scan, feeds logs into `/model`, serves the local ban API | Working, tested |
-| `/dashboard` — served directly by `/cli` on one port (JSON API + built UI) | Working, tested |
+| `/dashboard` — served directly by `/cli` on one port (JSON API + built UI), admin-password login, in-app Documentation page rendering this README | Working, tested |
 | Core `/backend` FastAPI service (multi-target aggregation, auth, SQLite, audit log) | **Not built yet.** Everything above works standalone against one target with no core running — that's intentional (see `docs/SPEC.md` §7 trust boundaries), not a workaround. |
 
 The marketing/landing site lives in its own repo now:
@@ -93,7 +93,10 @@ No `--image`, no Dockerfile required from you. `sentinal run --path` will:
    `http://<this-host>:8765` in a browser.
 7. Serve the local ban-action API (`--ban-api-port`, default 8787) for
    IP-ban coordination.
-8. **Track the running container against `my-app`** — no docker container
+8. Gate the dashboard behind a single admin-password login
+   (`--admin-password`/`$SENTINAL_ADMIN_PASSWORD`, defaults to `admin` with
+   a printed warning) — see `cli/README.md`'s `run` options table.
+9. **Track the running container against `my-app`** — no docker container
    ID to find or paste anywhere:
 
 ```bash

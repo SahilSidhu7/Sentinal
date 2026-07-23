@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import MaterialIcon from './MaterialIcon'
+import { useAuth } from '../lib/auth'
 
 const TABS = [
   { to: '/activity', label: 'Activity', icon: 'analytics' },
   { to: '/security', label: 'Security', icon: 'shield' },
   { to: '/containers', label: 'Containers', icon: 'grid_view' },
+  { to: '/docs', label: 'Docs', icon: 'menu_book' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
 ]
 
 export default function TopNav() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { logout } = useAuth()
   const linkRefs = useRef({})
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
 
@@ -57,8 +61,15 @@ export default function TopNav() {
             <button className="p-2 rounded-full hover:bg-white/5 transition-all duration-200 active:scale-90">
               <MaterialIcon name="search" className="text-on-surface-variant" />
             </button>
-            <button className="p-2 rounded-full hover:bg-white/5 transition-all duration-200 active:scale-90">
-              <MaterialIcon name="account_circle" className="text-on-surface-variant" />
+            <button
+              className="p-2 rounded-full hover:bg-white/5 transition-all duration-200 active:scale-90"
+              title="Log out"
+              onClick={() => {
+                logout()
+                navigate('/login', { replace: true })
+              }}
+            >
+              <MaterialIcon name="logout" className="text-on-surface-variant" />
             </button>
           </div>
         </div>

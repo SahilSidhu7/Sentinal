@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getScore, getFindings } from '../lib/api'
 import GlassPanel from '../components/GlassPanel'
 import MaterialIcon from '../components/MaterialIcon'
@@ -129,7 +130,7 @@ export default function Security() {
             </p>
           </div>
           <div className="flex gap-12 font-label-caps text-label-caps text-on-surface-variant">
-            <a className="hover:text-primary transition-colors" href="#">Documentation</a>
+            <Link className="hover:text-primary transition-colors" to="/docs">Documentation</Link>
             <a className="hover:text-primary transition-colors" href="#">API Status</a>
             <a className="hover:text-primary transition-colors" href="#">Legal</a>
           </div>

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import re
 import secrets
 import subprocess
@@ -204,6 +205,10 @@ def run(
         500, help="Retrain the anomaly baseline on this many freshly observed normal-traffic lines "
         "(continuous improvement as the target runs) — 0 disables"
     ),
+    admin_password: str = typer.Option(
+        None, help="Password to log into the dashboard. Defaults to $SENTINAL_ADMIN_PASSWORD, or 'admin' "
+        "with a printed warning if neither is set — change this for anything beyond local testing."
+    ),
 ) -> None:
     """Builds (if --path) and launches the container, blocks on the startup
     scan, then monitors it for its lifetime. Run this from your app's own
@@ -311,9 +316,15 @@ def run(
     ban_thread.start()
     typer.echo(f"ban API listening on 127.0.0.1:{ban_api_port} (backend coordinates IP blocks here)")
 
+    if admin_password is None:
+        admin_password = os.environ.get("SENTINAL_ADMIN_PASSWORD")
+    if admin_password is None:
+        admin_password = "admin"
+        typer.echo("warning: no --admin-password/$SENTINAL_ADMIN_PASSWORD set — dashboard login defaults to 'admin'")
+
     status_thread = threading.Thread(
         target=uvicorn.run,
-        args=(create_status_app(agent_state, runtime),),
+        args=(create_status_app(agent_state, runtime, admin_password=admin_password),),
         kwargs={"host": "127.0.0.1", "port": status_api_port, "log_level": "warning"},
         daemon=True,
     )

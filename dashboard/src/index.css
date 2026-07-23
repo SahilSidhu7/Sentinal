@@ -172,3 +172,107 @@ body {
   background: #27272a;
   border-radius: 10px;
 }
+
+/* Styling for Documentation.jsx's rendered README.md (marked output) --
+   scoped instead of using @tailwindcss/typography since it isn't installed. */
+.sentinel-markdown {
+  color: var(--color-on-surface);
+  line-height: 1.7;
+}
+.sentinel-markdown h1,
+.sentinel-markdown h2,
+.sentinel-markdown h3 {
+  font-weight: 700;
+  color: var(--color-on-surface);
+  margin-top: 2em;
+  margin-bottom: 0.6em;
+  letter-spacing: -0.01em;
+}
+.sentinel-markdown h1:first-child,
+.sentinel-markdown h2:first-child {
+  margin-top: 0;
+}
+.sentinel-markdown h1 {
+  font-size: 1.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.4em;
+}
+.sentinel-markdown h2 {
+  font-size: 1.4rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.3em;
+}
+.sentinel-markdown h3 {
+  font-size: 1.1rem;
+}
+.sentinel-markdown p,
+.sentinel-markdown ul,
+.sentinel-markdown ol {
+  margin-bottom: 1em;
+  color: var(--color-on-surface-variant);
+}
+.sentinel-markdown ul,
+.sentinel-markdown ol {
+  padding-left: 1.4em;
+}
+.sentinel-markdown li {
+  margin-bottom: 0.35em;
+}
+.sentinel-markdown a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.sentinel-markdown code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85em;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+.sentinel-markdown pre {
+  background: #0e0e0e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 1em;
+  overflow-x: auto;
+  margin-bottom: 1em;
+}
+.sentinel-markdown pre code {
+  background: none;
+  padding: 0;
+}
+.sentinel-markdown blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding-left: 1em;
+  color: var(--color-on-surface-variant);
+  margin: 1em 0;
+}
+.sentinel-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5em;
+  font-size: 0.9rem;
+}
+.sentinel-markdown th,
+.sentinel-markdown td {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.5em 0.8em;
+  text-align: left;
+}
+.sentinel-markdown th {
+  background: rgba(255, 255, 255, 0.04);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-on-surface-variant);
+}
+.sentinel-markdown hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 2em 0;
+}
+.sentinel-markdown strong {
+  color: var(--color-on-surface);
+}

@@ -8,6 +8,7 @@ import Login from './pages/Login.jsx'
 import Activity from './pages/Activity.jsx'
 import Security from './pages/Security.jsx'
 import Containers from './pages/Containers.jsx'
+import Documentation from './pages/Documentation.jsx'
 import Settings from './pages/Settings.jsx'
 
 createRoot(document.getElementById('root')).render(
@@ -28,6 +29,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="activity" element={<Activity />} />
             <Route path="security" element={<Security />} />
             <Route path="containers" element={<Containers />} />
+            <Route path="docs" element={<Documentation />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>
