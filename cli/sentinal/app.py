@@ -10,9 +10,12 @@ local ban API so core can coordinate an IP block when it flags an attacker.
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
+import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -38,6 +41,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("sentinal")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # cli/sentinal/app.py -> repo root
+
+
+class _Shutdown(Exception):
+    """Raised from the SIGTERM handler so `stop` triggers the same clean
+    container-stop/config-cleanup path as Ctrl+C, instead of the process
+    just dying mid-loop."""
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _findings_path(target_id: str) -> Path:
+    # Derived from AgentConfig.path_for (not the raw CONFIG_DIR constant) so
+    # it honors the same directory AgentConfig itself resolves to, including
+    # in tests that monkeypatch path_for.
+    return AgentConfig.path_for(target_id).parent / f"{target_id}-startup-findings.json"
 
 
 def _version_callback(value: bool) -> None:
@@ -117,6 +141,14 @@ def upgrade(
         result = subprocess.run(["npm", "run", "build"], cwd=REPO_ROOT / "dashboard")
         if result.returncode != 0:
             typer.echo("warning: dashboard build failed — npm installed? run `npm ci` in /dashboard and retry.")
+
+    if os.name != "nt":
+        venv_sentinal = Path(sys.executable).parent / "sentinal"
+        bin_dir = Path("/usr/local/bin") if os.access("/usr/local/bin", os.W_OK) else Path.home() / ".local" / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        symlink = bin_dir / "sentinal"
+        symlink.unlink(missing_ok=True)
+        symlink.symlink_to(venv_sentinal)
 
     version = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True)
     typer.echo(f"upgraded to {version.stdout.strip()}")
@@ -204,12 +236,19 @@ def run(
         500, help="Retrain the anomaly baseline on this many freshly observed normal-traffic lines "
         "(continuous improvement as the target runs) — 0 disables"
     ),
+    foreground: bool = typer.Option(
+        False, help="Stay attached and stream everything to this terminal instead of handing the watch "
+        "loop off to a background process (Ctrl+C to stop). Useful under systemd/a process supervisor, "
+        "or for debugging."
+    ),
 ) -> None:
     """Builds (if --path) and launches the container, blocks on the startup
-    scan, then monitors it for its lifetime. Run this from your app's own
-    directory with no options for the one-command path: `sentinal run` (or
-    the `sentinal start` alias) builds the current directory, picks a
-    session id for you, and prints the dashboard link once it's up."""
+    scan, then hands the watch loop off to a background process and returns
+    — control it afterward with `sentinal logs`/`scan`/`stop`/`status`. Run
+    this from your app's own directory with no options for the one-command
+    path: `sentinal run` (or the `sentinal start` alias) builds the current
+    directory, picks a session id for you, and prints the dashboard link
+    once it's up."""
     if path and image:
         typer.echo("error: pass at most one of --path (build from source) or --image (run an existing image)")
         raise typer.Exit(code=1)
@@ -279,9 +318,7 @@ def run(
         inspect = None
     local_scan = run_startup_scan(volumes=volume, env=env, docker_inspect=inspect)
 
-    agent_state = AgentState(target_id=target_id)
     findings = local_scan.findings if local_scan else []
-    agent_state.set_findings([dataclasses.asdict(f) for f in findings])
     if local_scan is None:
         typer.echo("warning: startup scan skipped (vibesentinel_scanner not installed)")
     else:
@@ -302,6 +339,111 @@ def run(
     except Exception:
         logger.debug("core unreachable for startup findings — continuing (dashboard still has them)", exc_info=True)
 
+    loop_kwargs = dict(
+        volume=volume, ban_api_port=ban_api_port, status_api_port=status_api_port,
+        batch_size=batch_size, baseline_lines=baseline_lines, seed_model=seed_model,
+        retrain_every=retrain_every,
+    )
+
+    if foreground:
+        _monitor_body(target_id, config, client, runtime, container_id, findings, **loop_kwargs)
+        return
+
+    _findings_path(target_id).write_text(json.dumps([dataclasses.asdict(f) for f in findings]))
+    monitor_cmd = [sys.executable, "-m", "sentinal", "monitor", "--target-id", target_id]
+    for key, value in loop_kwargs.items():
+        if key == "volume":
+            for v in value:
+                monitor_cmd += ["--volume", v]
+        else:
+            monitor_cmd += [f"--{key.replace('_', '-')}", str(value)]
+
+    log_path = AgentConfig.path_for(target_id).parent / f"{target_id}.log"
+    log_file = open(log_path, "a")
+    popen_kwargs = {} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen(
+        monitor_cmd, stdout=log_file, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **popen_kwargs
+    )
+    config.pid = proc.pid
+    config.save()
+
+    typer.echo("")
+    typer.echo(f"  dashboard ready -> http://localhost:{status_api_port}")
+    typer.echo("")
+    typer.echo(f"sentinal is watching {target_id!r} in the background (pid {proc.pid}):")
+    typer.echo(f"  sentinal logs --target-id {target_id}     tail the container's output")
+    typer.echo(f"  sentinal scan --target-id {target_id}     re-run the vulnerability scan")
+    typer.echo(f"  sentinal status --target-id {target_id}   check what's running")
+    typer.echo(f"  sentinal stop --target-id {target_id}     stop everything")
+    typer.echo(f"(sentinal's own diagnostics, not the app's logs: {log_path})")
+
+
+app.command("start", help="Alias for `run` — the one-command path: `sentinal start` from your app's directory.")(run)
+
+
+@app.command(hidden=True)
+def monitor(
+    target_id: str = typer.Option(...),
+    volume: list[str] = typer.Option([], "--volume"),
+    ban_api_port: int = typer.Option(8787),
+    status_api_port: int = typer.Option(8765),
+    batch_size: int = typer.Option(50),
+    baseline_lines: int = typer.Option(200),
+    seed_model: str = typer.Option("nginx"),
+    retrain_every: int = typer.Option(500),
+) -> None:
+    """Internal: runs the background watch loop for a target `run`/`start`
+    already launched a container for. Not meant to be invoked directly —
+    `run`/`start` spawns this as a detached process and `stop` signals it."""
+    config = AgentConfig.load(target_id)
+    if not config.container_id:
+        logger.error("monitor: target=%s has no container_id set — nothing to watch", target_id)
+        raise typer.Exit(code=1)
+
+    client = CoreClient(config.backend_url, config.token)
+    runtime = ContainerRuntime()
+
+    findings: list[dict] = []
+    findings_path = _findings_path(target_id)
+    if findings_path.exists():
+        try:
+            findings = json.loads(findings_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    _monitor_body(
+        target_id, config, client, runtime, config.container_id, findings,
+        volume=volume, ban_api_port=ban_api_port, status_api_port=status_api_port,
+        batch_size=batch_size, baseline_lines=baseline_lines, seed_model=seed_model,
+        retrain_every=retrain_every, findings_are_dicts=True,
+    )
+
+
+def _monitor_body(
+    target_id: str,
+    config: AgentConfig,
+    client: CoreClient,
+    runtime: ContainerRuntime,
+    container_id: str,
+    findings,
+    *,
+    volume: list[str],
+    ban_api_port: int,
+    status_api_port: int,
+    batch_size: int,
+    baseline_lines: int,
+    seed_model: str,
+    retrain_every: int,
+    findings_are_dicts: bool = False,
+) -> None:
+    """The actual watch loop: ban API + dashboard status API + FIM + log
+    streaming into detection. Runs either inline (`run --foreground`) or,
+    normally, inside the detached `monitor` process `run`/`start` spawns."""
+    agent_state = AgentState(target_id=target_id)
+    agent_state.set_findings(findings if findings_are_dicts else [dataclasses.asdict(f) for f in findings])
+
+    signal.signal(signal.SIGTERM, lambda signum, frame: (_ for _ in ()).throw(_Shutdown()))
+
     ban_thread = threading.Thread(
         target=uvicorn.run,
         args=(create_ban_app(container_id, runtime),),
@@ -309,7 +451,7 @@ def run(
         daemon=True,
     )
     ban_thread.start()
-    typer.echo(f"ban API listening on 127.0.0.1:{ban_api_port} (backend coordinates IP blocks here)")
+    logger.info("ban API listening on 127.0.0.1:%d", ban_api_port)
 
     status_thread = threading.Thread(
         target=uvicorn.run,
@@ -318,9 +460,7 @@ def run(
         daemon=True,
     )
     status_thread.start()
-    typer.echo("")
-    typer.echo(f"  dashboard ready -> http://localhost:{status_api_port}")
-    typer.echo("")
+    logger.info("dashboard ready -> http://localhost:%d", status_api_port)
 
     fim_paths = [v.split(":")[0] for v in volume]
     if fim_paths:
@@ -344,17 +484,17 @@ def run(
     pipeline = get_pipeline(target_id)
     tracker = get_escalation_tracker()
     if pipeline is None:
-        typer.echo("warning: anomaly detection disabled (no /model artifacts) — log tailing only")
+        logger.warning("anomaly detection disabled (no /model artifacts) — log tailing only")
 
     seeded = False
     if pipeline is not None and seed_model.lower() != "none":
         try:
             pipeline.seed_from_pretrained(seed_model)
             seeded = True
-            typer.echo(f"anomaly detection seeded from pretrained model={seed_model!r} — active immediately")
+            logger.info("anomaly detection seeded from pretrained model=%r — active immediately", seed_model)
         except FileNotFoundError:
             available = pipeline.available_pretrained()
-            typer.echo(f"warning: no pretrained model {seed_model!r} (available: {available}) — cold-starting instead")
+            logger.warning("no pretrained model %r (available: %s) — cold-starting instead", seed_model, available)
 
     pipeline_box = {
         "pipeline": pipeline,
@@ -378,18 +518,17 @@ def run(
                 continue
             _flush(pipeline_box, tracker, client, agent_state, target_id, buffer)
             buffer = []
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, _Shutdown):
         pass
     finally:
         if buffer and pipeline_box["trained"]:
             _flush(pipeline_box, tracker, client, agent_state, target_id, buffer)
-        typer.echo(f"stopping container {container_id[:12]}")
+        logger.info("stopping container %s", container_id[:12])
         runtime.stop(container_id)
         config.container_id = None
+        config.pid = None
         config.save()
-
-
-app.command("start", help="Alias for `run` — the one-command path: `sentinal start` from your app's directory.")(run)
+        _findings_path(target_id).unlink(missing_ok=True)
 
 
 def _train_baseline(pipeline_box: dict, target_id: str, lines: list[str]) -> None:
@@ -523,16 +662,34 @@ def serve_ban_api(
 
 
 @app.command()
-def stop(target_id: str = typer.Option(..., help="Target id — stops its running container")) -> None:
-    """Stops a target's container without needing its raw docker ID."""
+def stop(target_id: str = typer.Option(..., help="Target id — stops its background monitor and container")) -> None:
+    """Stops a target's background monitor (if `run`/`start` spawned one)
+    and its container, without needing a raw docker ID or PID."""
     config = AgentConfig.load(target_id)
-    if not config.container_id:
-        typer.echo(f"target={target_id!r} has no running container tracked")
-        raise typer.Exit(code=1)
-    ContainerRuntime().stop(config.container_id)
-    typer.echo(f"stopped container {config.container_id[:12]}")
-    config.container_id = None
+    stopped_something = False
+
+    if config.pid and _pid_alive(config.pid):
+        typer.echo(f"stopping background monitor (pid {config.pid}) ...")
+        os.kill(config.pid, signal.SIGTERM)
+        for _ in range(50):  # up to ~5s for its own cleanup (stops the container, clears config) to land
+            time.sleep(0.1)
+            if not _pid_alive(config.pid):
+                break
+        stopped_something = True
+        config = AgentConfig.load(target_id)  # reload -- the monitor's own exit path may have updated it
+
+    if config.container_id:
+        ContainerRuntime().stop(config.container_id)
+        typer.echo(f"stopped container {config.container_id[:12]}")
+        config.container_id = None
+        stopped_something = True
+
+    config.pid = None
     config.save()
+
+    if not stopped_something:
+        typer.echo(f"target={target_id!r} has nothing running")
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -570,6 +727,9 @@ def status(target_id: str = typer.Option(...)) -> None:
     """Prints the persisted config for a target (includes its tracked container id, if running)."""
     config = AgentConfig.load(target_id)
     typer.echo(config.model_dump_json(indent=2))
+    if config.pid:
+        state = "running" if _pid_alive(config.pid) else "not running (stale pid)"
+        typer.echo(f"background monitor: {state} (pid {config.pid})")
 
 
 def main() -> None:

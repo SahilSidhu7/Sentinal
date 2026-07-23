@@ -22,33 +22,43 @@ Python (Typer), `docker` CLI for image builds + container lifecycle, `watchdog` 
 
 ## Setup
 
+Repo-root `scripts/install.sh` is the normal path — one command, works standalone or via `curl | bash` (see the root README) — and finishes by symlinking `sentinal` onto `PATH` (`/usr/local/bin` or `~/.local/bin`) so it behaves like any other globally-installed CLI tool. No `source .venv/bin/activate` in the day-to-day workflow.
+
+Building this package directly instead:
+
 ```bash
 cd cli
 pip install -r requirements.txt   # installs /model + /backend editable too (-e ../model, -e ../backend)
 ```
 
-(Repo-root `scripts/install.sh` does this plus the ONNX export and dashboard build in one shot — see the root README.)
-
 ## Workflow
 
-The one-command path — from your app's own source directory:
+The one-command path — from your app's own source directory, in any shell (no venv activation needed once installed):
 
 ```bash
 sentinal start --port 8080:8080
 ```
 
-No `register` step, no `--target-id`, no `--path`: `start` (an alias for `run`) defaults `--path` to `.`, picks a session id from the folder name (e.g. `my-app-a1b2`), and auto-registers that session against `--backend-url` (default `http://localhost:8000`) — locally-only if core isn't reachable. It prints the session id up front and the dashboard link once the container's up:
+No `register` step, no `--target-id`, no `--path`: `start` (an alias for `run`) defaults `--path` to `.`, picks a session id from the folder name (e.g. `my-app-a1b2`), and auto-registers that session against `--backend-url` (default `http://localhost:8000`) — locally-only if core isn't reachable. It builds/launches the container and runs the startup scan **in this terminal** (so you see build/scan failures immediately), then hands the actual watch loop off to a detached background process and returns control to you:
 
 ```
 session: my-app-a1b2 (new — registered locally, core unreachable)
 ...
   dashboard ready -> http://localhost:8765
+
+sentinal is watching 'my-app-a1b2' in the background (pid 48213):
+  sentinal logs --target-id my-app-a1b2     tail the container's output
+  sentinal scan --target-id my-app-a1b2     re-run the vulnerability scan
+  sentinal status --target-id my-app-a1b2   check what's running
+  sentinal stop --target-id my-app-a1b2     stop everything
 ```
 
 ```bash
 sentinal logs --target-id my-app-a1b2        # tail its output — no container ID needed
-sentinal stop --target-id my-app-a1b2        # stop it — no container ID needed
+sentinal stop --target-id my-app-a1b2        # stops the background watcher + the container
 ```
+
+Prefer to stay attached instead (e.g. running under systemd, or debugging)? `sentinal start --foreground` skips the background hand-off and blocks in this terminal until Ctrl+C, same as `run` used to.
 
 For a fixed/known name instead of an auto-generated session id, or to pre-register before ever launching a container, use `register` + `run --target-id` explicitly (below).
 
@@ -77,28 +87,29 @@ The main loop. `start` is an alias for `run` for the one-command path. `--target
 | `--baseline-lines` | 200 | Lines to auto-train a fresh target's baseline on, if not seeding. |
 | `--seed-model` | `nginx` | Pretrained dataset baseline to seed detection from (`nginx`/`loghub-apache`/`loghub-linux`/`loghub-ssh`/`csic2010`, see `model/README.md`'s eval table) — `none` to cold-start on the target's own traffic instead (do this when your log format doesn't resemble any shipped dataset). |
 | `--retrain-every` | 500 | Retrain the baseline after this many freshly observed normal-traffic lines (continuous improvement) — `0` disables. |
+| `--foreground` | off | Stay attached and block in this terminal (Ctrl+C to stop) instead of handing the watch loop off to a background process. |
 
 If `--path` is given and you didn't pass your own `--volume`, the source directory is auto-mounted read-accessible at `/app_source` so the startup scanner can see it (secrets/dependency files) even when your Dockerfile's own `COPY` step already baked the source into the image.
 
-Runs the startup scan, aborts on a `critical` finding unless `--force`, then streams logs into detection for the container's lifetime. Persists the running container's id into the target's config as it starts, and clears it on clean shutdown — that's what makes `stop`/`logs`/`serve-ban-api --target-id` work without a raw docker ID.
+Builds, launches the container, and runs the startup scan synchronously in this terminal — aborting on a `critical` finding unless `--force` — so failures are visible immediately. Persists the running container's id into the target's config as it starts (what makes `stop`/`logs`/`serve-ban-api --target-id` work without a raw docker ID). Then, unless `--foreground`, spawns a detached `monitor` process (ban API, dashboard status API, FIM, log-tailing detection loop) and returns; that process's own diagnostics land in `~/.sentinal/<target_id>.log`, and its pid is persisted so `stop`/`status` can find and signal it.
 
 ### `scan --target-id ID [--volume HOST:CONTAINER ...]`
-Runs the startup vulnerability scan standalone — no container needs to be running. Useful to check a source tree before deploying it.
+Runs the startup vulnerability scan standalone — no container needs to be running. Useful to check a source tree before deploying it, or to re-scan a target that's already running.
 
 ### `stop --target-id ID`
-Stops the target's tracked container. Errors clearly if nothing is tracked (nothing running, or `run` already exited cleanly).
+Stops the target's background monitor (if `run`/`start` spawned one, via `SIGTERM` — same clean shutdown path as Ctrl+C) and its tracked container. Errors clearly if nothing is tracked.
 
 ### `logs --target-id ID [--follow / --no-follow]`
-Tails the target's tracked container's output (full history + follow by default; `--no-follow` prints what's there and exits).
+Tails the target's tracked container's output (full history + follow by default; `--no-follow` prints what's there and exits). This is the app's own output — for `sentinal`'s internal diagnostics from a background `run`, see `~/.sentinal/<target_id>.log`.
 
 ### `serve-ban-api (--target-id ID | --container-id ID) [--host] [--port]`
-Runs the ban-action API standalone against a container — normally started for you inside `run`; use this to restart it separately without restarting the whole monitoring loop. Prefer `--target-id`; `--container-id` is there for a container `run` isn't tracking (started outside sentinal).
+Runs the ban-action API standalone against a container — normally started for you inside `run`'s background monitor; use this to restart it separately without restarting the whole monitoring loop. Prefer `--target-id`; `--container-id` is there for a container `run` isn't tracking (started outside sentinal).
 
 ### `fim-baseline --root PATH --target-id ID`
 (Re)builds the file-integrity baseline hash set for a path, independent of `run`.
 
 ### `status --target-id ID`
-Prints the target's full persisted config as JSON — backend URL, token (redact before sharing), watch paths, and the tracked container id if one is running.
+Prints the target's full persisted config as JSON — backend URL, token (redact before sharing), watch paths, the tracked container id, and the background monitor's pid, if any. Also prints whether that pid is actually still alive.
 
 ### `upgrade [--skip-dashboard-build]`
 Pulls the latest code (`git pull` — must be a git checkout) and reinstalls `/model` + `/backend` + `/cli` editable, then rebuilds `/dashboard`'s static assets. Equivalent to `scripts/upgrade.sh`, for when `sentinal` is already on `PATH` and the venv is active.

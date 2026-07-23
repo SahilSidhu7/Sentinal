@@ -2,12 +2,35 @@
 # Installs VibeSentinel (sentinal CLI + /model + /backend scanner + /dashboard
 # static build) on a Linux server. Idempotent — safe to re-run.
 #
-# Usage:
+# Single-command remote install (clones the repo itself, no pre-clone needed):
+#   curl -fsSL https://raw.githubusercontent.com/SahilSidhu7/Sentinal/main/scripts/install.sh | bash
+#
+# Or from an existing checkout:
 #   git clone https://github.com/SahilSidhu7/Sentinal.git && cd Sentinal
 #   ./scripts/install.sh
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_URL="https://github.com/SahilSidhu7/Sentinal.git"
+DEFAULT_CLONE_DIR="$HOME/.local/share/sentinal"
+
+# Piped through `curl | bash`, BASH_SOURCE[0] doesn't correspond to a real
+# file on disk (there's nothing to `cd` into yet) -- clone the repo first.
+if [ -e "${BASH_SOURCE[0]:-/dev/null}" ]; then
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+else
+  REPO_ROOT="${SENTINAL_INSTALL_DIR:-$DEFAULT_CLONE_DIR}"
+  if [ -d "$REPO_ROOT/.git" ]; then
+    echo "==> updating existing checkout at $REPO_ROOT"
+    git -C "$REPO_ROOT" pull
+  else
+    if ! command -v git >/dev/null 2>&1; then
+      echo "error: git not found. Install git first, or clone the repo yourself and run this script from inside it." >&2
+      exit 1
+    fi
+    echo "==> cloning Sentinal into $REPO_ROOT"
+    git clone "$REPO_URL" "$REPO_ROOT"
+  fi
+fi
 cd "$REPO_ROOT"
 
 echo "==> VibeSentinel install (repo: $REPO_ROOT)"
@@ -62,14 +85,32 @@ else
   echo "warning: npm not found — dashboard UI won't be built. Install Node.js 18+ and re-run this script, or run 'npm ci && npm run build' in ./dashboard manually." >&2
 fi
 
+# The venv's console-script shebang points at .venv/bin/python3 directly, so
+# a symlink on PATH makes `sentinal` a normal global command -- no
+# `source .venv/bin/activate` needed in every new shell.
+if [ -w /usr/local/bin ]; then
+  BIN_DIR="/usr/local/bin"
+else
+  BIN_DIR="$HOME/.local/bin"
+  mkdir -p "$BIN_DIR"
+fi
+ln -sf "$REPO_ROOT/.venv/bin/sentinal" "$BIN_DIR/sentinal"
+echo "==> linked sentinal -> $BIN_DIR/sentinal"
+
 echo ""
 echo "==> install complete."
 echo ""
-echo "Activate the environment in new shells with:"
-echo "    source $REPO_ROOT/.venv/bin/activate"
-echo ""
-echo "Then, from your app's directory:"
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+  echo "warning: $BIN_DIR isn't on your PATH yet — add this to ~/.bashrc (or your shell's rc file) and open a new shell:" >&2
+  echo "    export PATH=\"$BIN_DIR:\$PATH\"" >&2
+  echo "" >&2
+fi
+echo "From any shell, in your app's own directory:"
 echo "    sentinal start --port 8080:8080"
 echo ""
-echo "The dashboard + JSON API are served together on http://<this-host>:8765 once 'sentinal start' is going."
+echo "That builds/launches your container, runs the startup vulnerability scan, and hands the"
+echo "watch loop off to a background process — the dashboard + JSON API come up together on"
+echo "http://<this-host>:8765. Control it with 'sentinal logs|scan|status|stop --target-id ...'"
+echo "(the id sentinal picks and prints, or one you chose with --target-id)."
+echo ""
 echo "Upgrade later with: sentinal upgrade   (or ./scripts/upgrade.sh)"

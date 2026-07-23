@@ -1,12 +1,18 @@
+import os
 from pathlib import Path
 
 from typer.testing import CliRunner
 
-from sentinal.app import _docker_permission_hint, _generate_session_id, app
+from sentinal.app import _docker_permission_hint, _generate_session_id, _pid_alive, app
 from sentinal.config import AgentConfig
 from sentinal.pipeline import get_pipeline
 
 runner = CliRunner()
+
+
+def _isolate_config(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("sentinal.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(AgentConfig, "path_for", classmethod(lambda cls, tid: tmp_path / f"{tid}.json"))
 
 
 def test_help() -> None:
@@ -99,3 +105,65 @@ def test_docker_permission_hint_matches_socket_error() -> None:
 
 def test_docker_permission_hint_ignores_unrelated_errors() -> None:
     assert _docker_permission_hint("docker run failed: no such image") is None
+
+
+def test_monitor_command_is_hidden() -> None:
+    # `monitor` is an internal implementation detail `run`/`start` spawn as a
+    # background process -- callable directly (the child process invokes it),
+    # but it shouldn't clutter the --help command list.
+    from typer.main import get_command
+
+    click_app = get_command(app)
+    assert click_app.commands["monitor"].hidden is True
+
+
+def test_pid_alive_true_for_current_process() -> None:
+    assert _pid_alive(os.getpid()) is True
+
+
+def test_pid_alive_false_for_nonexistent_pid() -> None:
+    # PIDs this large are never actually allocated -- a safe stand-in for "dead".
+    assert _pid_alive(2**30) is False
+
+
+def test_stop_reports_nothing_running(tmp_path, monkeypatch) -> None:
+    _isolate_config(tmp_path, monkeypatch)
+    AgentConfig(target_id="idle-target", backend_url="http://localhost:8000").save()
+
+    result = runner.invoke(app, ["stop", "--target-id", "idle-target"])
+
+    assert result.exit_code != 0
+    assert "nothing running" in result.output
+
+
+def test_stop_clears_stale_pid_with_no_container(tmp_path, monkeypatch) -> None:
+    _isolate_config(tmp_path, monkeypatch)
+    # A pid that's already dead (e.g. the background monitor crashed) must
+    # not block `stop` from reporting cleanly -- nothing to kill, nothing to
+    # wait on.
+    AgentConfig(target_id="stale-target", backend_url="http://localhost:8000", pid=2**30).save()
+
+    result = runner.invoke(app, ["stop", "--target-id", "stale-target"])
+
+    assert result.exit_code != 0  # still "nothing running" -- the pid was already dead
+    saved = AgentConfig.load("stale-target")
+    assert saved.pid is None
+
+
+def test_status_reports_background_monitor_state(tmp_path, monkeypatch) -> None:
+    _isolate_config(tmp_path, monkeypatch)
+    AgentConfig(target_id="watched-target", backend_url="http://localhost:8000", pid=os.getpid()).save()
+
+    result = runner.invoke(app, ["status", "--target-id", "watched-target"])
+
+    assert result.exit_code == 0
+    assert "background monitor: running" in result.output
+
+
+def test_monitor_requires_a_tracked_container(tmp_path, monkeypatch) -> None:
+    _isolate_config(tmp_path, monkeypatch)
+    AgentConfig(target_id="no-container-target", backend_url="http://localhost:8000").save()
+
+    result = runner.invoke(app, ["monitor", "--target-id", "no-container-target"])
+
+    assert result.exit_code != 0

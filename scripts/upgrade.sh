@@ -34,4 +34,14 @@ if command -v npm >/dev/null 2>&1; then
     echo "warning: dashboard build failed — see npm output above." >&2
 fi
 
+# Re-link in case the venv was recreated since install (the symlink target
+# path itself doesn't change, but this is idempotent and cheap either way).
+if [ -w /usr/local/bin ]; then
+  BIN_DIR="/usr/local/bin"
+else
+  BIN_DIR="$HOME/.local/bin"
+  mkdir -p "$BIN_DIR"
+fi
+ln -sf "$REPO_ROOT/.venv/bin/sentinal" "$BIN_DIR/sentinal"
+
 echo "==> upgraded to $(git rev-parse --short HEAD)"

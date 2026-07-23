@@ -35,31 +35,29 @@ One line, on any Linux server with `git`:
 curl -fsSL https://sahilsidhu7.github.io/sentinal-landing/install.sh | bash
 ```
 
-That clones this repo and runs `scripts/install.sh` for you — the only
-manual step either way, since bootstrapping Python/pip can't itself be a
-`sentinal` command before `sentinal` exists. It creates a `.venv`, installs
-`/model` + `/backend` + `/cli` (editable), exports the ONNX embedding
-model, and builds the dashboard's static assets. Each step degrades
-gracefully and tells you what to do manually if it can't reach the network
-or a tool (Docker, Node.js) isn't installed.
+(Or directly from this repo, no landing site involved:
+`curl -fsSL https://raw.githubusercontent.com/SahilSidhu7/Sentinal/main/scripts/install.sh | bash`
+— both end up running the same `scripts/install.sh`.) Either clones this
+repo (to `~/.local/share/sentinal` by default) or updates it if you've
+already installed once, creates a `.venv`, installs `/model` + `/backend` +
+`/cli` (editable), exports the ONNX embedding model, and builds the
+dashboard's static assets. Each step degrades gracefully and tells you
+what to do manually if it can't reach the network or a tool (Docker,
+Node.js) isn't installed — including checking you're in the `docker` group
+so `sentinal run`/`start` won't hit a permission error later.
 
-Prefer to clone yourself first:
-
-```bash
-git clone https://github.com/SahilSidhu7/Sentinal.git
-cd Sentinal
-./scripts/install.sh
-```
-
-Either way, finish with:
+**The last step symlinks `sentinal` onto `PATH`** (`/usr/local/bin` or
+`~/.local/bin`), so it works like any other globally-installed CLI tool —
+no `source .venv/bin/activate` step, ever, in the normal workflow. Open a
+new shell and:
 
 ```bash
-cd Sentinal   # if you used the one-liner
-source .venv/bin/activate
 sentinal --help
 ```
 
-Windows/dev: skip both, run the equivalent steps by hand (see
+Prefer to clone yourself first? `git clone https://github.com/SahilSidhu7/Sentinal.git && cd Sentinal && ./scripts/install.sh` does the same thing in place.
+
+Windows/dev: skip the installer, run the equivalent steps by hand (see
 [`cli/README.md`](cli/README.md) "Setup").
 
 **After install, every feature is a `sentinal` command** — building images,
@@ -68,39 +66,50 @@ second script or manual docker step in the normal workflow.
 
 ## Quick start
 
+From your app's own source directory:
+
 ```bash
-sentinal register --target-id my-app --backend-url http://localhost:8000
-sentinal run --target-id my-app --path ./my-app --port 8080:8080
+sentinal start --port 8080:8080
 ```
 
-No `--image`, no Dockerfile required from you. `sentinal run --path` will:
+No `register`, no `--target-id`, no `--path`, no `--image`, no Dockerfile
+required from you. `sentinal start` (an alias for `run`):
 
-1. **Build the container itself.** Uses `./my-app/Dockerfile` if you have
-   one; otherwise detects your app's stack (`requirements.txt` → Python,
+1. Picks a session id from the folder name (e.g. `my-app-a1b2`) and
+   auto-registers it — locally-only if core isn't reachable.
+2. **Builds the container itself.** Uses `./Dockerfile` if you have one;
+   otherwise detects your app's stack (`requirements.txt` → Python,
    `package.json` → Node) and generates a Dockerfile — you never write or
    run `docker build` yourself. (`--image some:tag` still works if you'd
    rather run something already built.)
-2. Launch the container.
-3. Run the startup vulnerability scan (`docs/VULNERABILITY_CHECKLIST.md`)
-   and refuse to start on a `critical` finding (`--force` to override).
-4. Seed anomaly detection from a pretrained baseline (`--seed-model`,
-   default `nginx`) or cold-start on this target's own first 200 log lines
-   (`--seed-model none`) — see "Self-improving detection" below.
-5. Stream logs into the anomaly pipeline, escalating sustained per-IP
-   attack patterns.
-6. Serve **the dashboard UI and its JSON API together** on one port
-   (`--status-api-port`, default **8765**) — open
-   `http://<this-host>:8765` in a browser.
-7. Serve the local ban-action API (`--ban-api-port`, default 8787) for
-   IP-ban coordination.
-8. **Track the running container against `my-app`** — no docker container
-   ID to find or paste anywhere:
+3. Launches the container.
+4. Runs the startup vulnerability scan (`docs/VULNERABILITY_CHECKLIST.md`)
+   and refuses to start on a `critical` finding (`--force` to override) —
+   all of this happens in your terminal, so failures are visible
+   immediately.
+5. **Hands off to a background process** for the rest of the target's
+   lifetime, and returns you to the shell:
+   - Seeds anomaly detection from a pretrained baseline (`--seed-model`,
+     default `nginx`) or cold-starts on this target's own first 200 log
+     lines (`--seed-model none`) — see "Self-improving detection" below.
+   - Streams logs into the anomaly pipeline, escalating sustained per-IP
+     attack patterns.
+   - Serves **the dashboard UI and its JSON API together** on one port
+     (`--status-api-port`, default **8765**) — open
+     `http://<this-host>:8765` in a browser.
+   - Serves the local ban-action API (`--ban-api-port`, default 8787) for
+     IP-ban coordination.
+6. **Tracks the running container and background process against its
+   session id** — no docker container ID or PID to find or paste anywhere:
 
 ```bash
-sentinal logs --target-id my-app     # tail its output
-sentinal stop --target-id my-app     # stop it
-sentinal status --target-id my-app   # see everything sentinal knows about it
+sentinal logs --target-id my-app-a1b2     # tail its output
+sentinal stop --target-id my-app-a1b2     # stop the background watcher + the container
+sentinal status --target-id my-app-a1b2   # see everything sentinal knows about it, incl. whether it's running
 ```
+
+Want to stay attached in the terminal instead (e.g. under systemd)?
+`sentinal start --foreground` skips the background hand-off.
 
 Want to see this whole loop working against a real (deliberately
 vulnerable) target first? See
@@ -110,8 +119,7 @@ every piece of this pipeline end to end:
 
 ```bash
 git clone https://github.com/SahilSidhu7/sentinel-demo-app.git
-sentinal register --target-id demo --backend-url http://localhost:8000
-sentinal run --target-id demo --path ./sentinel-demo-app --port 5000:5000 --seed-model none --force
+sentinal start --target-id demo --path ./sentinel-demo-app --port 5000:5000 --seed-model none --force
 ```
 
 ## Self-improving detection
@@ -141,15 +149,15 @@ script you run by hand.
 
 | Command | Required | Key options | What it does |
 |---|---|---|---|
-| `register` | `--target-id`, `--backend-url` | — | Registers a target, persists its config (backend URL, token, later its container id) to `~/.sentinal/<target_id>.json`. Degrades to a tokenless local registration if core is unreachable. |
-| `scan` | `--target-id` | `--volume` (repeatable) | Runs the startup vulnerability scan standalone — no container needs to be running. Good for checking source before deploying it. |
-| `run` | `--target-id`, one of `--path`/`--image` | `--port`, `--env`, `--volume` (all repeatable); `--name`; `--force`; `--ban-api-port` (8787); `--status-api-port` (8765); `--batch-size` (50); `--baseline-lines` (200); `--seed-model` (`nginx`); `--retrain-every` (500) | Builds (if `--path`) and launches the container, runs the startup scan, then monitors it for its lifetime — see "Quick start" above. Full option table in `cli/README.md`. |
-| `stop` | `--target-id` | — | Stops the target's tracked container. |
+| `register` | `--target-id`, `--backend-url` | — | Registers a target, persists its config (backend URL, token, later its container id and background pid) to `~/.sentinal/<target_id>.json`. Degrades to a tokenless local registration if core is unreachable. `run`/`start` do this automatically if you skip it. |
+| `scan` | `--target-id` | `--volume` (repeatable) | Runs the startup vulnerability scan standalone — no container needs to be running. Good for checking source before deploying it, or re-scanning one that's already up. |
+| `run` / `start` | none — all optional | `--target-id`; one of `--path`/`--image` (defaults `--path` to `.`); `--port`, `--env`, `--volume` (all repeatable); `--name`; `--force`; `--foreground`; `--ban-api-port` (8787); `--status-api-port` (8765); `--batch-size` (50); `--baseline-lines` (200); `--seed-model` (`nginx`); `--retrain-every` (500) | Builds (if `--path`) and launches the container, runs the startup scan synchronously, then hands the watch loop off to a background process and returns — see "Quick start" above. `start` is an alias for `run`. Full option table in `cli/README.md`. |
+| `stop` | `--target-id` | — | Stops the target's background monitor (if any) and its tracked container. |
 | `logs` | `--target-id` | `--follow`/`--no-follow` (default follow) | Tails the target's tracked container's output. |
-| `status` | `--target-id` | — | Prints the target's full persisted config as JSON, including its running container id if any. |
+| `status` | `--target-id` | — | Prints the target's full persisted config as JSON (container id, background pid) and whether that pid is actually still running. |
 | `fim-baseline` | `--root`, `--target-id` | — | (Re)builds the file-integrity baseline hash set for a path, independent of `run`. |
-| `serve-ban-api` | one of `--target-id`/`--container-id` | `--host`, `--port` (8787) | Runs the ban-action API standalone — normally started for you inside `run`. |
-| `upgrade` | — | `--skip-dashboard-build` | Pulls latest + reinstalls everything (editable), rebuilds the dashboard. |
+| `serve-ban-api` | one of `--target-id`/`--container-id` | `--host`, `--port` (8787) | Runs the ban-action API standalone — normally started for you inside `run`'s background monitor. |
+| `upgrade` | — | `--skip-dashboard-build` | Pulls latest + reinstalls everything (editable), rebuilds the dashboard, re-links the global `sentinal` symlink. |
 | `help` | — | — | Same as `--help`. |
 | `--version` | — | — | Prints the installed version. |
 
@@ -159,14 +167,15 @@ script you run by hand.
 sentinal upgrade
 ```
 
-or, if the venv isn't active yet / `sentinal` isn't on `PATH`:
+or, if `sentinal`'s symlink somehow isn't on `PATH`:
 
 ```bash
 ./scripts/upgrade.sh
 ```
 
 Both do the same thing: `git pull`, reinstall `/model` + `/backend` +
-`/cli` editable, rebuild `/dashboard`'s static assets.
+`/cli` editable, rebuild `/dashboard`'s static assets, and re-link the
+global `sentinal` symlink.
 
 ## Architecture
 
