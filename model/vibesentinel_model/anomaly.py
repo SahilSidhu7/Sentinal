@@ -8,7 +8,12 @@ import joblib
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
-DEFAULT_MODEL_DIR = Path(__file__).parent.parent / "artifacts" / "models"
+from ._resources import bundled_artifacts_dir, data_dir
+
+# A target's own trained model is written as it runs -> writable data dir.
+DEFAULT_MODEL_DIR = data_dir() / "models"
+# Pretrained dataset baselines shipped with the product are read-only -> bundle.
+DEFAULT_PRETRAINED_DIR = bundled_artifacts_dir() / "models"
 
 
 @dataclass
@@ -22,10 +27,25 @@ class DetectionResult:
 class AnomalyModel:
     """Per-target Isolation Forest with joblib persistence + versioning."""
 
-    def __init__(self, target_id: str, model_dir: str | Path = DEFAULT_MODEL_DIR):
+    def __init__(
+        self,
+        target_id: str,
+        model_dir: str | Path = DEFAULT_MODEL_DIR,
+        pretrained_dir: str | Path | None = None,
+    ):
         self.target_id = target_id
         self._model_dir = Path(model_dir)
         self._model_dir.mkdir(parents=True, exist_ok=True)
+        # Pretrained seeds are read from a separate, read-only dir. When the
+        # caller overrides model_dir (e.g. tests) but not pretrained_dir, seeds
+        # come from that same dir — matching the old single-dir behavior. Only
+        # the production default (writable data dir) splits off to the bundle.
+        if pretrained_dir is not None:
+            self._pretrained_dir = Path(pretrained_dir)
+        elif self._model_dir == DEFAULT_MODEL_DIR:
+            self._pretrained_dir = DEFAULT_PRETRAINED_DIR
+        else:
+            self._pretrained_dir = self._model_dir
         self._forest: IsolationForest | None = None
         self._train_scores_sorted: np.ndarray | None = None
 
@@ -76,14 +96,16 @@ class AnomalyModel:
         cold-starting with no detection until it accumulates its own baseline.
         Glob only matches unversioned files (versioned ones end in
         `.vN.joblib`, a different suffix), so no extra filtering needed."""
-        return sorted(p.name.removesuffix(".log_anomaly_model.joblib") for p in self._model_dir.glob("*.log_anomaly_model.joblib"))
+        if not self._pretrained_dir.is_dir():
+            return []
+        return sorted(p.name.removesuffix(".log_anomaly_model.joblib") for p in self._pretrained_dir.glob("*.log_anomaly_model.joblib"))
 
     def seed_from(self, source_id: str) -> None:
         """Copies a pretrained dataset model in as this target's starting
         point. Detection works immediately; `train()` still overwrites it
         (versioned) once this target has accumulated its own real baseline —
         see LogPipeline.seed_from_pretrained and the cli's periodic retrain."""
-        source_path = self._model_dir / f"{source_id}.log_anomaly_model.joblib"
+        source_path = self._pretrained_dir / f"{source_id}.log_anomaly_model.joblib"
         if not source_path.exists():
             raise FileNotFoundError(f"no pretrained model for source={source_id!r} at {source_path}")
         payload = joblib.load(source_path)

@@ -6,12 +6,18 @@ from pathlib import Path
 from drain3 import TemplateMiner
 from drain3.template_miner_config import TemplateMinerConfig
 
+from ._resources import data_dir
+
 
 class MalformedLogLine(Exception):
     """Raised for lines Drain3 cannot reduce to a usable template."""
 
 
-DEFAULT_STATE_DIR = Path(__file__).parent.parent / "artifacts" / "drain3_state"
+# Drain3 state is written per target as it runs, so it lives in the writable
+# user data dir (not the read-only bundle). The shipped dataset states under
+# model/artifacts/drain3_state/ are eval/demo seeds — point --state-dir there
+# to reuse one.
+DEFAULT_STATE_DIR = data_dir() / "drain3_state"
 
 
 class LogTemplateExtractor:

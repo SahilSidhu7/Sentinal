@@ -53,10 +53,35 @@ def test_help_command_matches_help_flag() -> None:
 def test_upgrade_refuses_outside_git_checkout(tmp_path, monkeypatch) -> None:
     import sentinal.app as app_module
 
+    # From-source (not frozen) path: a non-checkout dir can't self-upgrade.
+    monkeypatch.setattr(app_module, "is_frozen", lambda: False)
     monkeypatch.setattr(app_module, "REPO_ROOT", tmp_path)
     result = runner.invoke(app, ["upgrade"])
     assert result.exit_code != 0
     assert "git checkout" in result.output
+
+
+def test_upgrade_frozen_runs_installer(monkeypatch) -> None:
+    # Packaged-binary path: upgrade re-runs the one-line installer instead of
+    # touching git — and never shells out to the network in the test.
+    import sentinal.app as app_module
+
+    captured = {}
+
+    class _Result:
+        returncode = 0
+
+    def _fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = cmd
+        return _Result()
+
+    monkeypatch.setattr(app_module, "is_frozen", lambda: True)
+    monkeypatch.setattr(app_module.subprocess, "run", _fake_run)
+
+    result = runner.invoke(app, ["upgrade"])
+
+    assert result.exit_code == 0
+    assert any("install.sh" in str(part) for part in captured["cmd"])
 
 
 def test_register_degrades_when_core_unreachable(tmp_path, monkeypatch) -> None:

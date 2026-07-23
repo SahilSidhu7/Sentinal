@@ -35,6 +35,32 @@ The full spec — architecture diagram, data model, API surface, and module-by-m
 | Background jobs | `asyncio` tasks / `APScheduler` |
 | Containerization | Docker + docker-compose (core stack), separate `Dockerfile.agent` for the sentinel-agent |
 
+## Distribution & install (how `sentinal` ships)
+
+The `sentinal` CLI ships as a **self-contained one-file Linux binary** (x86_64 +
+aarch64), built with PyInstaller on CI and attached to GitHub Releases. End users
+install with a one-liner (`curl … scripts/install.sh | bash`) that downloads the
+binary (or the `.deb`) — **no repo clone, no venv, no editable installs** in the
+user path. `sentinal upgrade` re-runs the installer when frozen; from a source
+checkout it still does `git pull` + editable reinstall (dev workflow).
+
+Because the binary is frozen, data files are resolved through resource helpers,
+not raw `__file__` paths — do NOT reintroduce checkout-relative paths:
+- Read-only shipped artifacts (ONNX model, pretrained joblib models, drain3
+  seeds, `drain3_config.ini`, dashboard `dist/`) come from the bundle via
+  `vibesentinel_model._resources` / `sentinal._resources` (`sys._MEIPASS` when
+  frozen, `__file__` from source, env override).
+- Per-target state the agent *writes* (a target's own trained model, live drain3
+  state) goes to a user-writable data dir (`SENTINAL_DATA_DIR` /
+  `~/.local/share/sentinal`), never into the bundle (it's read-only/ephemeral).
+- The frozen binary spawns its background `monitor` as `sys.executable monitor …`
+  (the binary + subcommand), not `python -m sentinal` — see `app.py`.
+
+Build/release lives in `/packaging` (`sentinal.spec`, `build_binary.sh`,
+`build_deb.sh`) and `.github/workflows/release.yml`. The ONNX model is exported
+during the build (not committed); torch/transformers/optimum are excluded from
+the binary (export-only deps).
+
 ## Architecture (core concepts)
 
 - **Four-team project split** (`docs/SPEC.md` §11.1): `/frontend` (main dashboard), `/cli` (sentinel-agent CLI), `/model` (Drain3 + ONNX embedding + Isolation Forest train/detect), `/dashboard` (thin localhost status site shipped alongside the CLI). Plus shared `/backend` (FastAPI core) and `/docs`. Keep the cross-team contract points in §11.1 stable (`/model`'s `train()`/`detect()` signatures, the shared findings/attack-event JSON shape) so the four tracks can build in parallel without blocking each other.

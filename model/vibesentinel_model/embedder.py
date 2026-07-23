@@ -13,7 +13,11 @@ import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer
 
-DEFAULT_ARTIFACTS_DIR = Path(__file__).parent.parent / "artifacts" / "all-MiniLM-L6-v2"
+from ._resources import bundled_artifacts_dir
+
+# The ONNX embedding model is a read-only shipped artifact — inside the frozen
+# binary's bundle, or model/artifacts/ from a source checkout.
+DEFAULT_ARTIFACTS_DIR = bundled_artifacts_dir() / "all-MiniLM-L6-v2"
 MAX_SEQ_LEN = 64  # log templates are short; caps memory + latency per batch
 
 

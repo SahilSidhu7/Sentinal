@@ -1,116 +1,134 @@
 #!/usr/bin/env bash
-# Installs VibeSentinel (sentinal CLI + /model + /backend scanner + /dashboard
-# static build) on a Linux server. Idempotent — safe to re-run.
+# One-line installer for the `sentinal` CLI (VibeSentinel sentinel-agent).
 #
-# Single-command remote install (clones the repo itself, no pre-clone needed):
 #   curl -fsSL https://raw.githubusercontent.com/SahilSidhu7/Sentinal/main/scripts/install.sh | bash
 #
-# Or from an existing checkout:
-#   git clone https://github.com/SahilSidhu7/Sentinal.git && cd Sentinal
-#   ./scripts/install.sh
+# Downloads the self-contained `sentinal` binary for this machine's architecture
+# from the latest GitHub Release and puts it on your PATH. No repo clone, no
+# Python, no virtualenv — it behaves like any other installed command.
+# Re-running it upgrades in place (so is `sentinal upgrade`).
+#
+# Environment overrides:
+#   SENTINAL_VERSION=0.1.0    install a specific version instead of latest
+#   SENTINAL_INSTALL_METHOD=deb   install via the .deb package (needs dpkg + sudo)
+#   SENTINAL_BIN_DIR=/path     install dir for the raw-binary method
 set -euo pipefail
 
-REPO_URL="https://github.com/SahilSidhu7/Sentinal.git"
-DEFAULT_CLONE_DIR="$HOME/.local/share/sentinal"
+REPO="SahilSidhu7/Sentinal"
+METHOD="${SENTINAL_INSTALL_METHOD:-binary}"
 
-# Piped through `curl | bash`, BASH_SOURCE[0] doesn't correspond to a real
-# file on disk (there's nothing to `cd` into yet) -- clone the repo first.
-if [ -e "${BASH_SOURCE[0]:-/dev/null}" ]; then
-  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-else
-  REPO_ROOT="${SENTINAL_INSTALL_DIR:-$DEFAULT_CLONE_DIR}"
-  if [ -d "$REPO_ROOT/.git" ]; then
-    echo "==> updating existing checkout at $REPO_ROOT"
-    git -C "$REPO_ROOT" pull
+say()  { printf '==> %s\n' "$*"; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# --- platform / arch -------------------------------------------------------
+[ "$(uname -s)" = "Linux" ] || die "sentinal ships a Linux binary only — this is $(uname -s). On Windows use WSL."
+
+case "$(uname -m)" in
+  x86_64|amd64)   ARCH="x86_64"; DEBARCH="amd64" ;;
+  aarch64|arm64)  ARCH="aarch64"; DEBARCH="arm64" ;;
+  *) die "unsupported architecture: $(uname -m) (only x86_64 and aarch64 are built)" ;;
+esac
+
+command -v curl >/dev/null 2>&1 || die "curl not found — install curl and re-run."
+
+# --- resolve version -------------------------------------------------------
+# GitHub redirects /releases/latest/download/<asset> to the newest release, so
+# the raw-binary path needs no version. The .deb filename embeds the version,
+# so resolve it from the /releases/latest redirect target when not pinned.
+resolve_latest_version() {
+  local url
+  url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest")" \
+    || die "couldn't reach GitHub Releases — check connectivity, or set SENTINAL_VERSION."
+  local tag="${url##*/tag/}"
+  [ "$tag" != "$url" ] && [ -n "$tag" ] || die "no published release found for ${REPO} yet."
+  printf '%s' "${tag#v}"
+}
+
+# --- sudo helper -----------------------------------------------------------
+maybe_sudo() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; return; fi
+  if command -v sudo >/dev/null 2>&1; then sudo "$@"; return; fi
+  die "need root to $* — run as root or install sudo."
+}
+
+install_binary() {
+  local asset="sentinal-linux-${ARCH}"
+  local url
+  if [ -n "${SENTINAL_VERSION:-}" ]; then
+    url="https://github.com/${REPO}/releases/download/v${SENTINAL_VERSION}/${asset}"
   else
-    if ! command -v git >/dev/null 2>&1; then
-      echo "error: git not found. Install git first, or clone the repo yourself and run this script from inside it." >&2
-      exit 1
-    fi
-    echo "==> cloning Sentinal into $REPO_ROOT"
-    git clone "$REPO_URL" "$REPO_ROOT"
+    url="https://github.com/${REPO}/releases/latest/download/${asset}"
   fi
-fi
-cd "$REPO_ROOT"
 
-echo "==> VibeSentinel install (repo: $REPO_ROOT)"
+  local tmp
+  tmp="$(mktemp)"
+  say "downloading ${asset} ..."
+  curl -fSL --progress-bar "$url" -o "$tmp" || die "download failed: $url"
+  chmod +x "$tmp"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "error: python3 not found. Install Python 3.11+ first." >&2
-  exit 1
-fi
+  # Prefer a system-wide dir; fall back to a per-user one with a PATH note.
+  local bin_dir="${SENTINAL_BIN_DIR:-}"
+  if [ -z "$bin_dir" ]; then
+    if [ -w /usr/local/bin ] || [ "$(id -u)" -eq 0 ]; then
+      bin_dir="/usr/local/bin"
+    elif command -v sudo >/dev/null 2>&1; then
+      bin_dir="/usr/local/bin"
+    else
+      bin_dir="$HOME/.local/bin"
+    fi
+  fi
+  mkdir -p "$bin_dir" 2>/dev/null || maybe_sudo mkdir -p "$bin_dir"
 
-PYVER="$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
-echo "==> python3 found: $PYVER"
+  if [ -w "$bin_dir" ]; then
+    install -m0755 "$tmp" "$bin_dir/sentinal"
+  else
+    maybe_sudo install -m0755 "$tmp" "$bin_dir/sentinal"
+  fi
+  rm -f "$tmp"
+  say "installed sentinal -> $bin_dir/sentinal"
 
+  if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
+    warn "$bin_dir isn't on your PATH — add this to your shell rc and open a new shell:"
+    printf '    export PATH="%s:$PATH"\n' "$bin_dir" >&2
+  fi
+}
+
+install_deb() {
+  command -v dpkg >/dev/null 2>&1 || die "SENTINAL_INSTALL_METHOD=deb needs dpkg (Debian/Ubuntu)."
+  local version="${SENTINAL_VERSION:-$(resolve_latest_version)}"
+  local asset="sentinal_${version}_${DEBARCH}.deb"
+  local url="https://github.com/${REPO}/releases/download/v${version}/${asset}"
+  local tmp
+  tmp="$(mktemp --suffix=.deb)"
+  say "downloading ${asset} ..."
+  curl -fSL --progress-bar "$url" -o "$tmp" || die "download failed: $url"
+  say "installing package (dpkg) ..."
+  maybe_sudo dpkg -i "$tmp" || maybe_sudo apt-get -f install -y
+  rm -f "$tmp"
+  say "installed sentinal (deb)"
+}
+
+case "$METHOD" in
+  binary) install_binary ;;
+  deb)    install_deb ;;
+  *) die "unknown SENTINAL_INSTALL_METHOD=$METHOD (use 'binary' or 'deb')" ;;
+esac
+
+# --- post-install checks ---------------------------------------------------
 if ! command -v docker >/dev/null 2>&1; then
-  echo "warning: docker not found on PATH — 'sentinal run'/'sentinal start' launch containers and need it. Install Docker before running targets." >&2
-elif [ "$(id -u)" -ne 0 ] && ! id -nG "$USER" | grep -qw docker; then
-  echo "warning: $USER isn't in the 'docker' group yet — 'sentinal run'/'sentinal start' will fail with" >&2
-  echo "  'permission denied ... docker.sock' until you fix this (once):" >&2
-  echo "      sudo usermod -aG docker $USER && newgrp docker" >&2
-  echo "  (log out and back in if 'newgrp' doesn't pick it up). Don't run sentinal itself under sudo —" >&2
-  echo "  that resets PATH and breaks the venv." >&2
+  warn "docker not found — 'sentinal run'/'sentinal start' launch containers and need it. Install Docker Engine before running a target."
+elif [ "$(id -u)" -ne 0 ] && ! id -nG "$USER" 2>/dev/null | grep -qw docker; then
+  warn "$USER isn't in the 'docker' group yet — 'sentinal run' will fail on docker.sock until you fix this once:"
+  printf '    sudo usermod -aG docker %s && newgrp docker\n' "$USER" >&2
 fi
-
-echo "==> creating venv at .venv"
-if ! python3 -m venv .venv 2>/tmp/sentinal-venv-error.$$; then
-  cat /tmp/sentinal-venv-error.$$ >&2
-  rm -f /tmp/sentinal-venv-error.$$
-  echo "" >&2
-  echo "error: couldn't create the venv — Ubuntu/Debian's python3 often ships without the venv module." >&2
-  echo "Try: sudo apt install python3-venv    (or python3.<minor>-venv for your exact version), then re-run this script." >&2
-  exit 1
-fi
-rm -f /tmp/sentinal-venv-error.$$
-# shellcheck disable=SC1091
-source .venv/bin/activate
-python3 -m pip install --upgrade pip --quiet  # `pip install --upgrade pip` can fail on some platforms (pip can't overwrite its own running executable) -- `python -m pip` doesn't have that problem
-
-echo "==> installing model + backend + cli (editable)"
-pip install -e ./model --quiet
-pip install -e ./backend --quiet
-pip install -e ./cli --quiet
-
-echo "==> exporting ONNX embedding model (needed for detection; skips gracefully if offline)"
-if ! (cd model && python scripts/export_onnx_model.py); then
-  echo "warning: ONNX export failed (no network?) — re-run 'python model/scripts/export_onnx_model.py' once you have connectivity. Startup scanning and CLI commands still work without it." >&2
-fi
-
-if command -v npm >/dev/null 2>&1; then
-  echo "==> building dashboard static assets"
-  (cd dashboard && npm ci --silent && npm run build --silent) || \
-    echo "warning: dashboard build failed — 'sentinal run' will still serve the JSON API on its status port, just without the UI." >&2
-else
-  echo "warning: npm not found — dashboard UI won't be built. Install Node.js 18+ and re-run this script, or run 'npm ci && npm run build' in ./dashboard manually." >&2
-fi
-
-# The venv's console-script shebang points at .venv/bin/python3 directly, so
-# a symlink on PATH makes `sentinal` a normal global command -- no
-# `source .venv/bin/activate` needed in every new shell.
-if [ -w /usr/local/bin ]; then
-  BIN_DIR="/usr/local/bin"
-else
-  BIN_DIR="$HOME/.local/bin"
-  mkdir -p "$BIN_DIR"
-fi
-ln -sf "$REPO_ROOT/.venv/bin/sentinal" "$BIN_DIR/sentinal"
-echo "==> linked sentinal -> $BIN_DIR/sentinal"
 
 echo ""
-echo "==> install complete."
+say "done. Verify:  sentinal --version"
 echo ""
-if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-  echo "warning: $BIN_DIR isn't on your PATH yet — add this to ~/.bashrc (or your shell's rc file) and open a new shell:" >&2
-  echo "    export PATH=\"$BIN_DIR:\$PATH\"" >&2
-  echo "" >&2
-fi
-echo "From any shell, in your app's own directory:"
+echo "From inside your app's own directory:"
 echo "    sentinal start --port 8080:8080"
 echo ""
-echo "That builds/launches your container, runs the startup vulnerability scan, and hands the"
-echo "watch loop off to a background process — the dashboard + JSON API come up together on"
-echo "http://<this-host>:8765. Control it with 'sentinal logs|scan|status|stop --target-id ...'"
-echo "(the id sentinal picks and prints, or one you chose with --target-id)."
-echo ""
-echo "Upgrade later with: sentinal upgrade   (or ./scripts/upgrade.sh)"
+echo "That builds/launches your container, runs the startup scan, and serves the"
+echo "dashboard + JSON API on http://<this-host>:8765. Control it with"
+echo "'sentinal logs|scan|status|stop --target-id ...'. Upgrade later with 'sentinal upgrade'."

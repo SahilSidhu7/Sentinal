@@ -22,14 +22,37 @@ Python (Typer), `docker` CLI for image builds + container lifecycle, `watchdog` 
 
 ## Setup
 
-Repo-root `scripts/install.sh` is the normal path — one command, works standalone or via `curl | bash` (see the root README) — and finishes by symlinking `sentinal` onto `PATH` (`/usr/local/bin` or `~/.local/bin`) so it behaves like any other globally-installed CLI tool. No `source .venv/bin/activate` in the day-to-day workflow.
-
-Building this package directly instead:
+The normal path is the one-line installer (see the root README): it downloads
+the self-contained `sentinal` binary from the latest GitHub Release and puts it
+on your `PATH`. No clone, no Python, no virtualenv — the binary bundles its own
+runtime, ML model, and dashboard UI.
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/SahilSidhu7/Sentinal/main/scripts/install.sh | bash
+```
+
+### Develop from source
+
+For hacking on the CLI itself, run it from a checkout with editable installs.
+Data files resolve off the checkout automatically (`vibesentinel_model._resources`
+/ `sentinal._resources` fall back to `__file__` paths when not frozen):
+
+```bash
+python -m venv .venv && source .venv/bin/activate
 cd cli
 pip install -r requirements.txt   # installs /model + /backend editable too (-e ../model, -e ../backend)
+# the ONNX embedding model isn't checked in — export it once for detection:
+python ../model/scripts/export_onnx_model.py
+python -m sentinal --help          # or `sentinal --help` (console script)
 ```
+
+From a source checkout, `sentinal upgrade` does a `git pull` + editable
+reinstall. The release binary is built by `packaging/build_binary.sh` (Linux
+only) — see [`packaging/`](../packaging/) and `.github/workflows/release.yml`.
+
+Overrides useful in dev/tests: `SENTINAL_DATA_DIR` (where per-target trained
+models + drain3 state are written), `SENTINAL_BUNDLE_DIR` (where read-only
+shipped artifacts are read from), `SENTINAL_DASHBOARD_DIST` (the built UI dir).
 
 ## Workflow
 
@@ -114,8 +137,12 @@ Runs the ban-action API standalone against a container — normally started for 
 ### `status --target-id ID`
 Prints the target's full persisted config as JSON — backend URL, token (redact before sharing), watch paths, the tracked container id, and the background monitor's pid, if any. Also prints whether that pid is actually still alive.
 
-### `upgrade [--skip-dashboard-build]`
-Pulls the latest code (`git pull` — must be a git checkout) and reinstalls `/model` + `/backend` + `/cli` editable, then rebuilds `/dashboard`'s static assets. Equivalent to `scripts/upgrade.sh`, for when `sentinal` is already on `PATH` and the venv is active.
+### `upgrade`
+Updates sentinal to the latest release. As an installed binary it re-runs the
+one-line installer (fetches the newest release asset for your arch and replaces
+the binary in place) — equivalent to `scripts/upgrade.sh`. From a source
+checkout it instead does `git pull` + editable reinstall of `/model` + `/backend`
++ `/cli` and rebuilds `/dashboard` (`--skip-dashboard-build` to skip that).
 
 ### `help` / `--help` / `--version`
 `help` and `--help` show the same thing; `--version` prints the installed version.
