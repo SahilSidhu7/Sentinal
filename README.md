@@ -11,7 +11,34 @@ dependency for the core loop, and no manual `docker build`/`docker run`.
 
 Full design: [`docs/SPEC.md`](docs/SPEC.md). What gets checked at startup:
 [`docs/VULNERABILITY_CHECKLIST.md`](docs/VULNERABILITY_CHECKLIST.md). Full
-CLI reference: [`cli/README.md`](cli/README.md).
+CLI reference: [`cli/README.md`](cli/README.md). Live model numbers:
+[`docs/MODEL_STATS.md`](docs/MODEL_STATS.md).
+
+## Hosted management platform (v0.3.0) — new
+
+As of v0.3.0 there are **two ways to run Sentinal**:
+
+1. **CLI agent** (original) — point `sentinal run` at your app; it builds and
+   monitors the container itself. Documented below.
+2. **Hosted platform** (new) — a management system where each *project* is an
+   isolated Linux **environment** you drive through **two browser terminals**:
+   one to run your server, one to run tests and watch live alerts. A short
+   access id is auto-generated per project. The model taps the server
+   terminal's live output in real time; everything else is driven from a
+   single dashboard served on one port.
+
+   ```bash
+   pip install -e "./backend[core]"          # FastAPI core
+   cd dashboard && npm ci && npm run build    # build the UI (served by the core)
+   uvicorn vibesentinel_core.main:app --port 8000   # from /backend
+   # open http://localhost:8000 → create a project → open its two terminals
+   ```
+
+   **Demo project** (ships inside every environment): in the *server* terminal
+   run `python3 /opt/demo_server.py`, in the *tests* terminal run
+   `python3 /opt/traffic.py` — a fake-traffic + attack generator. Watch the
+   live alert feed light up. Measured 100% attack recall / 0 false positives
+   on a 40-request run — see [`docs/MODEL_STATS.md`](docs/MODEL_STATS.md).
 
 ## What's real today
 
@@ -20,8 +47,9 @@ CLI reference: [`cli/README.md`](cli/README.md).
 | `/model` — Drain3 + ONNX MiniLM + Isolation Forest, 5 pretrained dataset baselines shipped | Working, tested (see `model/README.md`) |
 | `/backend`'s `vibesentinel_scanner` — startup vuln scan (secrets/CVE/docker-misconfig/weak-creds) | Working, tested |
 | `/cli` (`sentinal`) — registers targets, **builds + launches + monitors containers itself**, runs the scan, feeds logs into `/model`, serves the local ban API | Working, tested |
-| `/dashboard` — served directly by `/cli` on one port (JSON API + built UI), admin-password login, in-app Documentation page rendering this README | Working, tested |
-| Core `/backend` FastAPI service (multi-target aggregation, auth, SQLite, audit log) | **Not built yet.** Everything above works standalone against one target with no core running — that's intentional (see `docs/SPEC.md` §7 trust boundaries), not a workaround. |
+| `/dashboard` — one port (JSON API + built UI), admin-password login, in-app Documentation page, plus the new hosted Overview/Environments pages | Working, tested |
+| `/backend`'s `vibesentinel_core` — hosted platform: per-project Linux environments, two browser terminals (PTY over WebSocket), live model monitoring, project persistence, single-port dashboard | **New in v0.3.0**, verified end-to-end (create → id → 2 terminals → live attack alert) |
+| Core `/backend` multi-target aggregation, auth, SQLite audit log | Partial — `vibesentinel_core` covers project/env management + live monitoring; JWT auth + SQLite history not yet wired. Standalone-per-target still works with no core. |
 
 The marketing/landing site lives in its own repo now:
 [sentinal-landing](https://github.com/SahilSidhu7/sentinal-landing)
@@ -222,8 +250,8 @@ whether or not a core backend is aggregating them.
 /cli        sentinal — the agent CLI: registration, image build + container
             lifecycle, log tailing, startup scan, ban API, dashboard status API
 /model      Drain3 + ONNX embedding + Isolation Forest — vibesentinel_model
-/backend    vibesentinel_scanner (startup vuln checks) + the not-yet-built
-            core FastAPI service
+/backend    vibesentinel_scanner (startup vuln checks) + vibesentinel_core
+            (hosted platform: environments, browser terminals, live monitoring)
 /dashboard  Thin status site, served by /cli (React + Vite + Tailwind)
 /docs       Spec + the vulnerability checklist
 /scripts    install.sh / upgrade.sh — the one-line installer (downloads the
@@ -239,11 +267,15 @@ depends on — see `docs/SPEC.md` §11.1 / `TEAM.md`.
 
 ## Known limitations
 
-- **Core `/backend` FastAPI service doesn't exist yet** — no multi-target
-  aggregation, no auth, no SQLite-backed history across restarts. Every
-  command above works fully standalone against one target; core-facing
-  calls (`register`, event forwarding) are best-effort and silently degrade
-  if core isn't running.
+- **Hosted core is partial** — `vibesentinel_core` handles project/env
+  management, browser terminals, live monitoring, and project persistence,
+  but JWT auth (the dashboard login is still client-side only) and
+  SQLite-backed history/audit across restarts aren't wired yet. The CLI
+  agent path works fully standalone against one target regardless.
+- **Hosted terminals need a working Docker `exec`** — each environment is a
+  container the two terminals `docker exec` into. A wedged Docker daemon
+  (where `docker ps` shows a container that `docker exec`/`inspect` can't
+  find) blocks the terminals; restart Docker Desktop (`wsl --shutdown`) if so.
 - **Windows dev machines**: `--volume`/`--path`'s FIM watcher and
   auto-mount split a host path on `:` to separate host/container sides —
   correct for Linux host paths (this project's actual deployment target)

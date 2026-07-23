@@ -4,9 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-This repository is **pre-build**. It currently contains only the product/engineering spec (`docs/SPEC.md`) — no backend, frontend, agent, or infra code exists yet. There are no build/lint/test commands to run because nothing has been scaffolded. Before running or referencing any tooling commands, check whether the relevant code has actually been created; do not assume commands from the target stack (e.g. `pytest`, `npm run dev`) work until the corresponding project files exist.
+Code exists — this is no longer pre-build. `/backend` (scanner lib + FastAPI core), `/cli` (sentinel-agent), `/model` (Drain3+ONNX+IForest, with trained artifacts), and `/dashboard` (React) are all scaffolded and partly working. `docs/SPEC.md` is the original spec; parts are now superseded by the pivot below.
 
-When starting implementation, follow the build order in `docs/SPEC.md` §12 (Foundation → scanner/FIM → static explainer/fusion → dashboard → log monitor/anomaly pipeline → auto-response/IP ban → sentinel-agent CLI → audit hardening → endpoint detection), and create the directory layout specified in §11.1: `/frontend`, `/cli`, `/model`, `/dashboard`, `/backend`, `/docs` — a 4-team split (frontend team, CLI/agent team, anomaly-model team, local-dashboard team) plus the shared FastAPI core.
+### Core pivot (2026-07-23): hosted management platform
+
+The original model — CLI dockerizes a target and tails *its* logs — is being replaced by a **hosted management system**. Each *project* is an isolated Linux container ("environment") the user drives through **two browser terminals**: a *server* terminal (run your app) and a *tests* terminal (run tests, watch alerts). A short access id is auto-generated on creation when the user gives no name. The model watches the **server terminal's live output** in real time; everything else is driven from the dashboard.
+
+New core loop: **Create env (auto id) → 2 web terminals (server / tests) → model taps server output → live alerts → dashboard**
+
+- New core package: `backend/vibesentinel_core/` (FastAPI). `main.py` (REST + terminal/alert websockets), `environment.py` (per-project Docker container + async PTY bridge via `docker exec`), `monitor.py` (tees server output into `vibesentinel_model.LogPipeline`), `ids.py`, `env_image/` (Ubuntu image + `ptybroker.py` in-container PTY + `demo_server.py`). Run: `uvicorn vibesentinel_core.main:app` (install `pip install -e "./backend[core]"`).
+- Frontend: `dashboard/src/pages/Environment.jsx` + `Terminal.jsx` (xterm.js panes), `lib/core.js` (talks to core at `VITE_CORE_URL`, default :8000). Route `/environments` is now the dashboard landing page.
+- Real PTY lives **inside** the container (`ptybroker.py`) so it works from a Windows host; the host only pipes bytes over `docker exec -i`. Resize rides the byte pipe as an APC frame `\x1b_RESIZE:cols:rows\x1b\\`.
+- Status: vertical slice — create→id→2 terminals→live anomaly alert. Backend + frontend build/import clean. **Live end-to-end run was blocked by a broken local Docker Desktop engine** where `docker exec`/`inspect` return "No such container" for containers `docker ps` shows running; fix is restarting Docker Desktop (`wsl --shutdown` then relaunch). `is_running()` uses `docker ps`, not `inspect`, to sidestep that class of inconsistency.
 
 ## What this project is
 

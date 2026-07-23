@@ -6,3 +6,18 @@
 /dist/
 /build/
 *.spec.bak
+
+# Per-target runtime model artifacts (one is written each time a project/target
+# runs). Only the 5 shipped dataset baselines below are version-controlled.
+model/artifacts/models/*.joblib
+model/artifacts/drain3_state/*.bin
+!model/artifacts/models/nginx.log_anomaly_model.joblib
+!model/artifacts/models/csic2010.log_anomaly_model.joblib
+!model/artifacts/models/loghub-apache.log_anomaly_model.joblib
+!model/artifacts/models/loghub-linux.log_anomaly_model.joblib
+!model/artifacts/models/loghub-ssh.log_anomaly_model.joblib
+!model/artifacts/drain3_state/nginx.bin
+!model/artifacts/drain3_state/csic2010.bin
+!model/artifacts/drain3_state/loghub-apache.bin
+!model/artifacts/drain3_state/loghub-linux.bin
+!model/artifacts/drain3_state/loghub-ssh.bin

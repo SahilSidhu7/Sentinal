@@ -6,6 +6,8 @@ import App from './App.jsx'
 import { AuthProvider, RequireAuth } from './lib/auth'
 import Login from './pages/Login.jsx'
 import Activity from './pages/Activity.jsx'
+import Environment from './pages/Environment.jsx'
+import Overview from './pages/Overview.jsx'
 import Security from './pages/Security.jsx'
 import Containers from './pages/Containers.jsx'
 import Documentation from './pages/Documentation.jsx'
@@ -25,7 +27,9 @@ createRoot(document.getElementById('root')).render(
               </RequireAuth>
             }
           >
-            <Route index element={<Navigate to="/activity" replace />} />
+            <Route index element={<Navigate to="/overview" replace />} />
+            <Route path="overview" element={<Overview />} />
+            <Route path="environments" element={<Environment />} />
             <Route path="activity" element={<Activity />} />
             <Route path="security" element={<Security />} />
             <Route path="containers" element={<Containers />} />
