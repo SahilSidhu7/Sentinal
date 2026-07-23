@@ -21,6 +21,25 @@ class ContainerRuntime:
     def __init__(self, docker_bin: str = "docker"):
         self.docker_bin = docker_bin
 
+    def daemon_access_error(self) -> str | None:
+        """Returns the daemon's error text if `docker` can't be reached (not
+        installed, daemon down, or a permissions problem), else None.
+
+        A cheap preflight: `docker build`/`run` stream their output live so
+        their failure messages can't be inspected for the classic
+        permission-denied-on-docker.sock case — this captures a `docker info`
+        probe so the CLI can surface the fix-it hint up front instead of a
+        raw stack trace."""
+        try:
+            result = subprocess.run(
+                [self.docker_bin, "info"], capture_output=True, text=True
+            )
+        except FileNotFoundError:
+            return f"{self.docker_bin!r} not found on PATH — install Docker Engine first."
+        if result.returncode != 0:
+            return (result.stderr or result.stdout).strip() or "docker daemon unreachable"
+        return None
+
     def run(
         self,
         image: str,

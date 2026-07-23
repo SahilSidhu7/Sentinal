@@ -132,6 +132,45 @@ def test_docker_permission_hint_ignores_unrelated_errors() -> None:
     assert _docker_permission_hint("docker run failed: no such image") is None
 
 
+def test_daemon_access_error_reports_permission_denied(monkeypatch) -> None:
+    # The `docker info` preflight surfaces the permission-denied text so `run`
+    # can turn it into the docker-group hint instead of a raw build failure.
+    from sentinal.container import ContainerRuntime
+
+    class _Result:
+        returncode = 1
+        stderr = "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock"
+        stdout = ""
+
+    monkeypatch.setattr("sentinal.container.subprocess.run", lambda *a, **k: _Result())
+    err = ContainerRuntime().daemon_access_error()
+    assert err is not None
+    assert _docker_permission_hint(err) is not None
+
+
+def test_daemon_access_error_none_when_reachable(monkeypatch) -> None:
+    from sentinal.container import ContainerRuntime
+
+    class _Result:
+        returncode = 0
+        stderr = ""
+        stdout = "Server Version: 27.0"
+
+    monkeypatch.setattr("sentinal.container.subprocess.run", lambda *a, **k: _Result())
+    assert ContainerRuntime().daemon_access_error() is None
+
+
+def test_daemon_access_error_when_docker_missing(monkeypatch) -> None:
+    from sentinal.container import ContainerRuntime
+
+    def _raise(*a, **k):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr("sentinal.container.subprocess.run", _raise)
+    err = ContainerRuntime().daemon_access_error()
+    assert err is not None and "not found" in err
+
+
 def test_monitor_command_is_hidden() -> None:
     # `monitor` is an internal implementation detail `run`/`start` spawn as a
     # background process -- callable directly (the child process invokes it),

@@ -105,8 +105,9 @@ def _docker_permission_hint(message: str) -> str | None:
         return (
             "your user isn't in the 'docker' group, so it can't reach the Docker daemon. Fix once:\n"
             "    sudo usermod -aG docker $USER && newgrp docker\n"
-            "(log out and back in if 'newgrp' doesn't pick it up right away). Don't run sentinal itself "
-            "under sudo to work around this — that resets PATH and breaks the venv."
+            "(log out and back in if 'newgrp' doesn't pick it up right away). Running 'sudo sentinal' works "
+            "too, but then sentinal's data (trained models, config) is written under root's home instead of "
+            "yours — the docker group is the cleaner fix."
         )
     return None
 
@@ -197,7 +198,9 @@ def register(
     try:
         token = client.register(target_id)
     except Exception:
-        logger.warning("core unreachable at %s — registering locally with no token", backend_url, exc_info=True)
+        # Running standalone (no core backend) is a first-class, common mode —
+        # don't dump a scary stack trace for it. Full detail stays at debug.
+        logger.debug("core unreachable at %s — registering locally with no token", backend_url, exc_info=True)
         typer.echo(f"warning: couldn't reach core at {backend_url!r} — registered locally (no token; core-facing features stay best-effort)")
         token = None
     config = AgentConfig(target_id=target_id, backend_url=backend_url, token=token)
@@ -297,7 +300,9 @@ def run(
         try:
             token = client.register(target_id)
         except Exception:
-            logger.warning("core unreachable at %s — registering locally with no token", backend_url, exc_info=True)
+            # Standalone (no core backend) is the common case — keep it quiet;
+            # the "registered locally" line below already says what happened.
+            logger.debug("core unreachable at %s — registering locally with no token", backend_url, exc_info=True)
             token = None
         config = AgentConfig(target_id=target_id, backend_url=backend_url, token=token)
         config.save()
@@ -305,6 +310,15 @@ def run(
 
     client = CoreClient(config.backend_url, config.token)
     runtime = ContainerRuntime()
+
+    # Fail fast with an actionable message if Docker isn't reachable, rather
+    # than letting the build/run streams spew a raw daemon error.
+    access_err = runtime.daemon_access_error()
+    if access_err:
+        hint = _docker_permission_hint(access_err)
+        typer.echo("error: can't reach the Docker daemon.")
+        typer.echo(hint if hint else access_err)
+        raise typer.Exit(code=1)
 
     if path:
         tag = f"sentinal/{target_id}:latest"
