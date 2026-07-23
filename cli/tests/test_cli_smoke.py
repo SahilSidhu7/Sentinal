@@ -1,6 +1,8 @@
+from pathlib import Path
+
 from typer.testing import CliRunner
 
-from sentinal.app import app
+from sentinal.app import _docker_permission_hint, _generate_session_id, app
 from sentinal.config import AgentConfig
 from sentinal.pipeline import get_pipeline
 
@@ -12,6 +14,7 @@ def test_help() -> None:
     assert result.exit_code == 0
     assert "register" in result.output
     assert "run" in result.output
+    assert "start" in result.output
     assert "scan" in result.output
 
 
@@ -63,3 +66,36 @@ def test_register_degrades_when_core_unreachable(tmp_path, monkeypatch) -> None:
     assert "registered target=" in result.output
     saved = AgentConfig.load("unreachable-test")
     assert saved.token is None
+
+
+def test_generate_session_id_uses_real_folder_name(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("sentinal.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(AgentConfig, "path_for", classmethod(lambda cls, tid: tmp_path / f"{tid}.json"))
+
+    project_dir = tmp_path / "my-cool-app"
+    project_dir.mkdir()
+
+    # "." resolves to an empty Path.name -- must resolve to the actual
+    # directory name rather than falling back to the generic "app".
+    session_id = _generate_session_id(str(project_dir / "."))
+    assert session_id.startswith("my-cool-app-")
+
+
+def test_generate_session_id_avoids_collisions(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("sentinal.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(AgentConfig, "path_for", classmethod(lambda cls, tid: tmp_path / f"{tid}.json"))
+
+    first = _generate_session_id("demo")
+    (tmp_path / f"{first}.json").write_text("{}")
+    second = _generate_session_id("demo")
+    assert first != second
+
+
+def test_docker_permission_hint_matches_socket_error() -> None:
+    hint = _docker_permission_hint("docker run failed: permission denied while trying to connect to the docker API at unix:///var/run/docker.sock")
+    assert hint is not None
+    assert "usermod -aG docker" in hint
+
+
+def test_docker_permission_hint_ignores_unrelated_errors() -> None:
+    assert _docker_permission_hint("docker run failed: no such image") is None

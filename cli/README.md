@@ -31,30 +31,41 @@ pip install -r requirements.txt   # installs /model + /backend editable too (-e 
 
 ## Workflow
 
-```bash
-sentinal register --target-id my-app --backend-url http://localhost:8000
-sentinal run --target-id my-app --path ./my-app --port 8080:8080
-```
-
-Open `http://localhost:8765` — the dashboard UI + JSON API are both served there by this same process.
+The one-command path — from your app's own source directory:
 
 ```bash
-sentinal logs --target-id my-app        # tail its output — no container ID needed
-sentinal stop --target-id my-app        # stop it — no container ID needed
+sentinal start --port 8080:8080
 ```
+
+No `register` step, no `--target-id`, no `--path`: `start` (an alias for `run`) defaults `--path` to `.`, picks a session id from the folder name (e.g. `my-app-a1b2`), and auto-registers that session against `--backend-url` (default `http://localhost:8000`) — locally-only if core isn't reachable. It prints the session id up front and the dashboard link once the container's up:
+
+```
+session: my-app-a1b2 (new — registered locally, core unreachable)
+...
+  dashboard ready -> http://localhost:8765
+```
+
+```bash
+sentinal logs --target-id my-app-a1b2        # tail its output — no container ID needed
+sentinal stop --target-id my-app-a1b2        # stop it — no container ID needed
+```
+
+For a fixed/known name instead of an auto-generated session id, or to pre-register before ever launching a container, use `register` + `run --target-id` explicitly (below).
 
 ## Commands
 
 ### `register --target-id ID --backend-url URL`
-Registers the target with core, persists `~/.sentinal/<target_id>.json` (backend URL, deployment token, and later the running container id). If core is unreachable, registers locally anyway with no token — every core-facing feature elsewhere in this CLI is already best-effort, so a target still fully works standalone.
+Registers a target with a name you choose, persists `~/.sentinal/<target_id>.json` (backend URL, deployment token, and later the running container id). If core is unreachable, registers locally anyway with no token. `run`/`start` do this automatically with an auto-generated id if you don't call it yourself first — every core-facing feature elsewhere in this CLI is already best-effort, so a target fully works standalone either way.
 
-### `run --target-id ID (--path DIR | --image IMAGE) [options]`
-The main loop. Exactly one of `--path`/`--image` is required.
+### `run` / `start --target-id ID (--path DIR | --image IMAGE) [options]`
+The main loop. `start` is an alias for `run` for the one-command path. `--target-id` and `--path`/`--image` are all optional: with neither `--path` nor `--image`, `--path` defaults to the current directory; with no `--target-id`, one is generated from the source folder (or image) name and a random suffix, and auto-registered against `--backend-url` if it doesn't already exist.
 
 | Option | Default | What it does |
 |---|---|---|
-| `--path DIR` | — | Build from source. Uses `DIR/Dockerfile` if present; otherwise detects Python (`requirements.txt` + `app.py`/`main.py`/`wsgi.py`/`manage.py`) or Node (`package.json`'s `"start"` script, or `index.js`/`server.js`/`app.js`) and generates a Dockerfile (never written into your source tree). Built image is tagged `sentinal/<target_id>:latest`. |
+| `--target-id ID` | auto-generated | Session id. Omit it to let `start`/`run` pick one and register it for you. |
+| `--path DIR` | `.` if neither `--path` nor `--image` given | Build from source. Uses `DIR/Dockerfile` if present; otherwise detects Python (`requirements.txt` + `app.py`/`main.py`/`wsgi.py`/`manage.py`) or Node (`package.json`'s `"start"` script, or `index.js`/`server.js`/`app.js`) and generates a Dockerfile (never written into your source tree). Built image is tagged `sentinal/<target_id>:latest`. |
 | `--image IMAGE` | — | Run an already-built image instead (e.g. one you pulled from a registry). |
+| `--backend-url URL` | `http://localhost:8000` | Used only if `--target-id` has no existing config yet, to auto-register it. |
 | `--name NAME` | container-generated | Container name. |
 | `--port HOST:CONTAINER` | none | Port mapping; repeatable. |
 | `--env KEY=VALUE` | none | Env var; repeatable. |
@@ -104,6 +115,10 @@ from vibesentinel_scanner import Scanner
 ```
 
 See `/model/README.md` for `train()`/`detect()` signatures and `docs/VULNERABILITY_CHECKLIST.md` for what the scanner checks. `sentinal.pipeline.get_pipeline()`/`get_escalation_tracker()` and `sentinal.scanner.run_startup_scan()` all return `None` and degrade gracefully if the corresponding package isn't installed. Also depends on `/backend`'s `POST /agent/events/batch`/`/agent/register` (spec §6, best-effort — startup scanning and detection both work with no core backend running at all).
+
+## Docker permissions
+
+`run`/`start` shell out to `docker`, which needs your user in the `docker` group (or root) to reach `/var/run/docker.sock`. If you see `permission denied ... docker.sock`, fix it once — `sudo usermod -aG docker $USER && newgrp docker` (or log out/in) — rather than running `sentinal` itself under `sudo`: `sudo` resets `PATH`, so it won't find a venv-only `sentinal` install. `scripts/install.sh` checks for group membership and warns at install time if it's missing.
 
 ## Known platform limitation
 

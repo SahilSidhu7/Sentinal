@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
+import secrets
 import subprocess
 import sys
 import threading
@@ -42,6 +44,31 @@ def _version_callback(value: bool) -> None:
     if value:
         typer.echo(f"sentinal {__version__}")
         raise typer.Exit()
+
+
+def _generate_session_id(seed: str) -> str:
+    """Derives a short, readable target id from a path/image name (e.g.
+    `sentinel-demo-app` -> `sentinel-demo-app-a1b2`) so `start` never
+    requires the user to pick or remember one."""
+    seed_path = Path(seed)
+    if seed_path.exists():
+        seed_path = seed_path.resolve()  # "." has an empty .name; resolve to the real folder name
+    base = re.sub(r"[^a-z0-9]+", "-", seed_path.name.lower()).strip("-") or "app"
+    while True:
+        candidate = f"{base}-{secrets.token_hex(2)}"
+        if not AgentConfig.path_for(candidate).exists():
+            return candidate
+
+
+def _docker_permission_hint(message: str) -> str | None:
+    if "permission denied" in message.lower() and "docker.sock" in message.lower():
+        return (
+            "your user isn't in the 'docker' group, so it can't reach the Docker daemon. Fix once:\n"
+            "    sudo usermod -aG docker $USER && newgrp docker\n"
+            "(log out and back in if 'newgrp' doesn't pick it up right away). Don't run sentinal itself "
+            "under sudo to work around this — that resets PATH and breaks the venv."
+        )
+    return None
 
 
 app = typer.Typer(help="Sentinal sentinel-agent CLI")
@@ -142,15 +169,23 @@ def scan(
 
 @app.command()
 def run(
-    target_id: str = typer.Option(..., help="Target id from a prior `register` call"),
+    target_id: str = typer.Option(
+        None, help="Session/target id. Auto-generated from --path's folder name (or --image) if omitted — "
+        "no prior `register` call needed."
+    ),
     path: str = typer.Option(
-        None, help="Path to your app's source. sentinal builds it (using your Dockerfile if you have "
-        "one, otherwise auto-detecting Python/Node and generating one) and runs the result — "
-        "you never run `docker build`/`docker run` yourself. Mutually exclusive with --image."
+        None, help="Path to your app's source (defaults to the current directory if neither --path nor "
+        "--image is given). sentinal builds it (using your Dockerfile if you have one, otherwise "
+        "auto-detecting Python/Node and generating one) and runs the result — you never run "
+        "`docker build`/`docker run` yourself. Mutually exclusive with --image."
     ),
     image: str = typer.Option(
         None, help="An already-built image to run instead of building from --path, e.g. myapp:latest "
         "or a registry image you didn't build yourself."
+    ),
+    backend_url: str = typer.Option(
+        "http://localhost:8000", help="Core backend URL, used only to auto-register if this target has no "
+        "config yet — degrades to a local-only session if core isn't reachable."
     ),
     name: str = typer.Option(None, help="Container name"),
     port: list[str] = typer.Option([], "--port", help="Port mapping, e.g. 8080:8080; repeatable"),
@@ -171,12 +206,33 @@ def run(
     ),
 ) -> None:
     """Builds (if --path) and launches the container, blocks on the startup
-    scan, then monitors it for its lifetime."""
-    if bool(path) == bool(image):
-        typer.echo("error: pass exactly one of --path (build from source) or --image (run an existing image)")
+    scan, then monitors it for its lifetime. Run this from your app's own
+    directory with no options for the one-command path: `sentinal run` (or
+    the `sentinal start` alias) builds the current directory, picks a
+    session id for you, and prints the dashboard link once it's up."""
+    if path and image:
+        typer.echo("error: pass at most one of --path (build from source) or --image (run an existing image)")
         raise typer.Exit(code=1)
+    if not path and not image:
+        path = "."
 
-    config = AgentConfig.load(target_id)
+    if target_id is None:
+        target_id = _generate_session_id(path or image)
+
+    try:
+        config = AgentConfig.load(target_id)
+        typer.echo(f"session: {target_id}")
+    except FileNotFoundError:
+        client = CoreClient(backend_url)
+        try:
+            token = client.register(target_id)
+        except Exception:
+            logger.warning("core unreachable at %s — registering locally with no token", backend_url, exc_info=True)
+            token = None
+        config = AgentConfig(target_id=target_id, backend_url=backend_url, token=token)
+        config.save()
+        typer.echo(f"session: {target_id} (new — registered{' locally, core unreachable' if token is None else ''})")
+
     client = CoreClient(config.backend_url, config.token)
     runtime = ContainerRuntime()
 
@@ -195,12 +251,22 @@ def run(
             runtime.build(str(context_dir), str(dockerfile_path), tag)
         except ContainerError as exc:
             typer.echo(f"error: {exc}")
+            hint = _docker_permission_hint(str(exc))
+            if hint:
+                typer.echo(hint)
             raise typer.Exit(code=1)
         image = tag
         if not volume:
             volume = [f"{context_dir}:/app_source"]  # so the startup scanner can see your source too
 
-    container_id = runtime.run(image=image, name=name, ports=port, env=env, volumes=volume)
+    try:
+        container_id = runtime.run(image=image, name=name, ports=port, env=env, volumes=volume)
+    except ContainerError as exc:
+        typer.echo(f"error: {exc}")
+        hint = _docker_permission_hint(str(exc))
+        if hint:
+            typer.echo(hint)
+        raise typer.Exit(code=1)
     typer.echo(f"container started: {container_id[:12]}")
     config.container_id = container_id
     config.save()
@@ -252,7 +318,9 @@ def run(
         daemon=True,
     )
     status_thread.start()
-    typer.echo(f"dashboard status API listening on 127.0.0.1:{status_api_port}")
+    typer.echo("")
+    typer.echo(f"  dashboard ready -> http://localhost:{status_api_port}")
+    typer.echo("")
 
     fim_paths = [v.split(":")[0] for v in volume]
     if fim_paths:
@@ -319,6 +387,9 @@ def run(
         runtime.stop(container_id)
         config.container_id = None
         config.save()
+
+
+app.command("start", help="Alias for `run` — the one-command path: `sentinal start` from your app's directory.")(run)
 
 
 def _train_baseline(pipeline_box: dict, target_id: str, lines: list[str]) -> None:

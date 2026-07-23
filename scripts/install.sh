@@ -21,7 +21,13 @@ PYVER="$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info
 echo "==> python3 found: $PYVER"
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "warning: docker not found on PATH — 'sentinal run' launches containers and needs it. Install Docker before running targets." >&2
+  echo "warning: docker not found on PATH — 'sentinal run'/'sentinal start' launch containers and need it. Install Docker before running targets." >&2
+elif [ "$(id -u)" -ne 0 ] && ! id -nG "$USER" | grep -qw docker; then
+  echo "warning: $USER isn't in the 'docker' group yet — 'sentinal run'/'sentinal start' will fail with" >&2
+  echo "  'permission denied ... docker.sock' until you fix this (once):" >&2
+  echo "      sudo usermod -aG docker $USER && newgrp docker" >&2
+  echo "  (log out and back in if 'newgrp' doesn't pick it up). Don't run sentinal itself under sudo —" >&2
+  echo "  that resets PATH and breaks the venv." >&2
 fi
 
 echo "==> creating venv at .venv"
@@ -62,10 +68,8 @@ echo ""
 echo "Activate the environment in new shells with:"
 echo "    source $REPO_ROOT/.venv/bin/activate"
 echo ""
-echo "Then:"
-echo "    sentinal --help"
-echo "    sentinal register --target-id my-app --backend-url http://localhost:8000"
-echo "    sentinal run --target-id my-app --image my-app:latest --port 8080:8080 --volume /path/to/app:/app"
+echo "Then, from your app's directory:"
+echo "    sentinal start --port 8080:8080"
 echo ""
-echo "The dashboard + JSON API are served together on http://<this-host>:8765 once 'sentinal run' is going."
+echo "The dashboard + JSON API are served together on http://<this-host>:8765 once 'sentinal start' is going."
 echo "Upgrade later with: sentinal upgrade   (or ./scripts/upgrade.sh)"
