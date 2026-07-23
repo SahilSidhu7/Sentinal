@@ -29,36 +29,50 @@ The marketing/landing site lives in its own repo now:
 
 ## Install
 
-One line, on any Linux server with `git`:
+One line, on any Linux server (Linux-only; on Windows use WSL):
 
 ```bash
 curl -fsSL https://sahilsidhu7.github.io/sentinal-landing/install.sh | bash
 ```
 
-(Or directly from this repo, no landing site involved:
+(Or straight from this repo, no landing site involved:
 `curl -fsSL https://raw.githubusercontent.com/SahilSidhu7/Sentinal/main/scripts/install.sh | bash`
-— both end up running the same `scripts/install.sh`.) Either clones this
-repo (to `~/.local/share/sentinal` by default) or updates it if you've
-already installed once, creates a `.venv`, installs `/model` + `/backend` +
-`/cli` (editable), exports the ONNX embedding model, and builds the
-dashboard's static assets. Each step degrades gracefully and tells you
-what to do manually if it can't reach the network or a tool (Docker,
-Node.js) isn't installed — including checking you're in the `docker` group
-so `sentinal run`/`start` won't hit a permission error later.
+— both run the same `scripts/install.sh`.)
 
-**The last step symlinks `sentinal` onto `PATH`** (`/usr/local/bin` or
-`~/.local/bin`), so it works like any other globally-installed CLI tool —
-no `source .venv/bin/activate` step, ever, in the normal workflow. Open a
-new shell and:
+This downloads the **self-contained `sentinal` binary** for your architecture
+(x86_64 or aarch64) from the latest [GitHub Release](https://github.com/SahilSidhu7/Sentinal/releases)
+and drops it on your `PATH` (`/usr/local/bin`, or `~/.local/bin` if that's not
+writable). No repo clone, no Python, no virtualenv — the binary bundles its own
+Python runtime, the ONNX embedding model, the anomaly models, and the dashboard
+UI. It also checks Docker is present and that you're in the `docker` group, so
+`sentinal run`/`start` won't hit a permission error later.
 
 ```bash
+sentinal --version
 sentinal --help
 ```
 
-Prefer to clone yourself first? `git clone https://github.com/SahilSidhu7/Sentinal.git && cd Sentinal && ./scripts/install.sh` does the same thing in place.
+### Other ways to install
 
-Windows/dev: skip the installer, run the equivalent steps by hand (see
-[`cli/README.md`](cli/README.md) "Setup").
+```bash
+# Debian/Ubuntu package (needs sudo)
+SENTINAL_INSTALL_METHOD=deb curl -fsSL https://raw.githubusercontent.com/SahilSidhu7/Sentinal/main/scripts/install.sh | bash
+
+# pin a specific version
+SENTINAL_VERSION=0.1.0 curl -fsSL .../install.sh | bash
+
+# or grab an asset from a release by hand
+curl -fL -o sentinal https://github.com/SahilSidhu7/Sentinal/releases/latest/download/sentinal-linux-x86_64
+chmod +x sentinal && sudo mv sentinal /usr/local/bin/
+# ...or:  sudo dpkg -i sentinal_<version>_amd64.deb
+```
+
+The installer isn't code-signed; on a first run some hardened setups may warn —
+it's a plain ELF binary you can inspect. One-time step.
+
+**Building from source / contributing?** See [`cli/README.md`](cli/README.md)
+"Develop from source" for the editable-install dev workflow, and
+[`packaging/`](packaging/) for how the release binary is built.
 
 **After install, every feature is a `sentinal` command** — building images,
 running/stopping containers, tailing logs, scanning, upgrading. There is no
@@ -160,7 +174,7 @@ script you run by hand.
 | `status` | `--target-id` | — | Prints the target's full persisted config as JSON (container id, background pid) and whether that pid is actually still running. |
 | `fim-baseline` | `--root`, `--target-id` | — | (Re)builds the file-integrity baseline hash set for a path, independent of `run`. |
 | `serve-ban-api` | one of `--target-id`/`--container-id` | `--host`, `--port` (8787) | Runs the ban-action API standalone — normally started for you inside `run`'s background monitor. |
-| `upgrade` | — | `--skip-dashboard-build` | Pulls latest + reinstalls everything (editable), rebuilds the dashboard, re-links the global `sentinal` symlink. |
+| `upgrade` | — | — | Installed binary: re-runs the installer to fetch and replace itself with the latest release. Source checkout (dev): `git pull` + editable reinstall (`--skip-dashboard-build` available there). |
 | `help` | — | — | Same as `--help`. |
 | `--version` | — | — | Prints the installed version. |
 
@@ -170,15 +184,16 @@ script you run by hand.
 sentinal upgrade
 ```
 
-or, if `sentinal`'s symlink somehow isn't on `PATH`:
+That re-runs the installer, which downloads the newest release binary and
+replaces the one on your `PATH`. Re-running the one-line install command does
+exactly the same thing (the installer is idempotent):
 
 ```bash
-./scripts/upgrade.sh
+curl -fsSL https://raw.githubusercontent.com/SahilSidhu7/Sentinal/main/scripts/install.sh | bash
 ```
 
-Both do the same thing: `git pull`, reinstall `/model` + `/backend` +
-`/cli` editable, rebuild `/dashboard`'s static assets, and re-link the
-global `sentinal` symlink.
+(Working from a source checkout instead? `sentinal upgrade` there does a
+`git pull` + editable reinstall — see [`cli/README.md`](cli/README.md).)
 
 ## Architecture
 
@@ -211,8 +226,10 @@ whether or not a core backend is aggregating them.
             core FastAPI service
 /dashboard  Thin status site, served by /cli (React + Vite + Tailwind)
 /docs       Spec + the vulnerability checklist
-/scripts    install.sh / upgrade.sh (the one manual bootstrap step and its
-            update path — everything after install is a sentinal command)
+/scripts    install.sh / upgrade.sh — the one-line installer (downloads the
+            release binary) and its update wrapper
+/packaging  PyInstaller spec + build scripts that produce the release binary
+            and .deb (run on Linux CI — see .github/workflows/release.yml)
 ```
 
 Marketing site: separate repo, [sentinal-landing](https://github.com/SahilSidhu7/sentinal-landing) (also hosts the one-line installer above).

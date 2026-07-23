@@ -8,23 +8,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
-from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from sentinal._resources import dashboard_dist
 from sentinal.container import ContainerRuntime
 from sentinal.state import AgentState
 
 logger = logging.getLogger(__name__)
 
-# /cli, /model, /backend, /dashboard are sibling folders in the monorepo
-# (spec §8) -- this only resolves when installed from a full checkout, which
-# is the only way sentinal works today (see cli/README.md). A packaged
-# install with the dashboard build shipped elsewhere would need this
-# overridable; not needed yet.
-DASHBOARD_DIST = Path(__file__).resolve().parents[2] / "dashboard" / "dist"
+# Resolved via _resources so it works from a source checkout (sibling
+# dashboard/dist), from the frozen binary (bundled under sys._MEIPASS), or via
+# a $SENTINAL_DASHBOARD_DIST override — see _resources.dashboard_dist.
+DASHBOARD_DIST = dashboard_dist()
 
 
 _STATE_MAP = {"running": "running", "exited": "stopped", "created": "stopped", "paused": "stopped"}

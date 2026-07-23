@@ -1,0 +1,98 @@
+name: release
+
+# Builds the self-contained `sentinal` Linux binary (+ .deb) for x86_64 and
+# aarch64 and attaches them to the GitHub Release. This is where the binary is
+# actually produced — it can't be cross-built from a non-Linux dev machine.
+#
+# Trigger by pushing a version tag:
+#   git tag v0.1.0 && git push origin v0.1.0
+# Or run manually (workflow_dispatch) to produce downloadable build artifacts
+# without cutting a release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to build and attach assets to, e.g. v0.1.0 (backfill a previous release). Leave blank to just build the current branch without releasing. The tag's commit must contain packaging/ + this workflow."
+        required: false
+        default: ""
+
+permissions:
+  contents: write   # needed to attach assets to the release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            debarch: amd64
+            runner: ubuntu-latest
+          - arch: aarch64
+            debarch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # For a manual re-build of a past tag, check that tag out; otherwise
+          # build whatever ref triggered the run.
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Resolve version
+        id: ver
+        run: |
+          REF_INPUT="${{ github.event.inputs.ref }}"
+          if [ -n "$REF_INPUT" ]; then
+            # Manual (re)build of a specific tag -> attach to that release.
+            echo "version=${REF_INPUT#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=${REF_INPUT}" >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            # Dispatch with no ref: build only, don't touch any release.
+            echo "version=0.0.0-dev.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build binary
+        run: ./packaging/build_binary.sh
+
+      - name: Smoke test
+        run: ./dist/sentinal --version
+
+      - name: Name the binary asset
+        run: |
+          cp dist/sentinal "dist/sentinal-linux-${{ matrix.arch }}"
+
+      - name: Build .deb
+        run: ./packaging/build_deb.sh "${{ steps.ver.outputs.version }}" "${{ matrix.debarch }}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinal-${{ matrix.arch }}
+          path: |
+            dist/sentinal-linux-${{ matrix.arch }}
+            dist/sentinal_*_${{ matrix.debarch }}.deb
+
+      - name: Attach to release
+        if: steps.ver.outputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          files: |
+            dist/sentinal-linux-${{ matrix.arch }}
+            dist/sentinal_*_${{ matrix.debarch }}.deb

@@ -26,6 +26,7 @@ import typer
 import uvicorn
 
 from sentinal import __version__
+from sentinal._resources import is_frozen
 from sentinal.ban_api import create_app as create_ban_app
 from sentinal.build import BuildError, ensure_dockerfile
 from sentinal.client import CoreClient
@@ -40,7 +41,13 @@ from sentinal.state import AgentState
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("sentinal")
 
-REPO_ROOT = Path(__file__).resolve().parents[2]  # cli/sentinal/app.py -> repo root
+REPO_ROOT = Path(__file__).resolve().parents[2]  # cli/sentinal/app.py -> repo root (source checkout only)
+
+# Where `sentinal upgrade` re-fetches the release binary from when installed as
+# a packaged binary (not a source checkout). The installer detects arch, pulls
+# the matching asset from the latest GitHub Release, and replaces the binary in
+# place — same script as the one-line install.
+INSTALL_URL = "https://raw.githubusercontent.com/SahilSidhu7/Sentinal/main/scripts/install.sh"
 
 
 class _Shutdown(Exception):
@@ -127,13 +134,24 @@ def help(ctx: typer.Context) -> None:
 
 @app.command()
 def upgrade(
-    skip_dashboard_build: bool = typer.Option(False, help="Skip rebuilding /dashboard's static assets"),
+    skip_dashboard_build: bool = typer.Option(False, help="Skip rebuilding /dashboard's static assets (source-checkout dev installs only)"),
 ) -> None:
-    """Pulls the latest code and reinstalls (editable) — run from a git checkout.
+    """Updates sentinal to the latest release.
 
-    Equivalent to scripts/upgrade.sh, exposed here so `sentinal upgrade` works
-    once the CLI itself is on PATH, without needing the repo's script path.
+    Packaged binary (the normal install): re-runs the one-line installer, which
+    pulls the latest release asset for this machine's arch and replaces the
+    binary in place. Source checkout (dev): pulls the latest code and reinstalls
+    the editable packages, equivalent to scripts/upgrade.sh.
     """
+    if is_frozen():
+        typer.echo("fetching the latest sentinal release ...")
+        # Hand off to the same installer the one-liner uses — it detects arch,
+        # downloads the matching asset, and installs over the current binary.
+        # `bash -c 'curl ... | bash'` so we don't need curl-then-pipe plumbing
+        # in Python; the installer handles sudo/PATH itself.
+        result = subprocess.run(["bash", "-c", f'curl -fsSL "{INSTALL_URL}" | bash'])
+        raise typer.Exit(code=result.returncode)
+
     if not (REPO_ROOT / ".git").exists():
         typer.echo(f"error: {REPO_ROOT} isn't a git checkout — can't self-upgrade. Pull manually and reinstall.")
         raise typer.Exit(code=1)
@@ -365,7 +383,13 @@ def run(
         return
 
     _findings_path(target_id).write_text(json.dumps([dataclasses.asdict(f) for f in findings]))
-    monitor_cmd = [sys.executable, "-m", "sentinal", "monitor", "--target-id", target_id]
+    # As a frozen binary, sys.executable IS the sentinal binary, so invoke the
+    # `monitor` subcommand directly; `-m sentinal` only works from source where
+    # sys.executable is the Python interpreter.
+    if is_frozen():
+        monitor_cmd = [sys.executable, "monitor", "--target-id", target_id]
+    else:
+        monitor_cmd = [sys.executable, "-m", "sentinal", "monitor", "--target-id", target_id]
     for key, value in loop_kwargs.items():
         if key == "volume":
             for v in value:
