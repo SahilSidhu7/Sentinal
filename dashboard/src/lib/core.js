@@ -3,8 +3,12 @@
 // legacy agent pages use, so the two wiring paths stay independent during the
 // pivot. Point VITE_CORE_URL at the core backend if it isn't on :8000.
 
-const CORE = import.meta.env.VITE_CORE_URL || 'http://localhost:8000'
-const WS_BASE = CORE.replace(/^http/, 'ws')
+// Default to the origin the dashboard is served from — the core serves the UI
+// and the API together, so they're always same-origin (works behind any
+// domain/reverse-proxy/TLS without config). Override only for a split dev setup
+// (e.g. Vite on :5173 hitting the core on :8000) via VITE_CORE_URL.
+const CORE = import.meta.env.VITE_CORE_URL || window.location.origin
+const WS_BASE = CORE.replace(/^http/, 'ws') // http->ws, https->wss
 const TOKEN_KEY = 'sentinel_local_token' // same key the login flow (lib/auth) stores
 
 const token = () => localStorage.getItem(TOKEN_KEY)

@@ -43,6 +43,21 @@ As of v0.3.0 there are **two ways to run Sentinal**:
    sentinal core            # or: sentinal-core   (equivalent standalone launcher)
    ```
 
+   **Behind a domain / reverse proxy.** The UI, API, and websockets are all
+   served on one origin, so the dashboard just calls whatever host you load it
+   from — no endpoint config. Your proxy must forward WebSocket upgrades for the
+   terminals/alerts to work, e.g. nginx:
+
+   ```nginx
+   location / {
+       proxy_pass http://127.0.0.1:8000;
+       proxy_http_version 1.1;
+       proxy_set_header Upgrade $http_upgrade;
+       proxy_set_header Connection "upgrade";
+       proxy_set_header Host $host;
+   }
+   ```
+
    **Login.** The dashboard is gated by an admin password — **`admin`** by
    default. Change it before exposing the platform on the network:
    `sentinal core --host 0.0.0.0 --admin-password 'something-strong'` (or set
