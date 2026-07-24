@@ -17,8 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY ptybroker.py /opt/ptybroker.py
-COPY demo_server.py /opt/demo_server.py
-COPY traffic.py /opt/traffic.py
 
 WORKDIR /root
 # Kept alive by the backend; terminals attach via `docker exec`.

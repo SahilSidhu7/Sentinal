@@ -18,6 +18,7 @@ logger = logging.getLogger("vibesentinel_core.environment")
 ENV_IMAGE = "sentinal/env:latest"
 CONTAINER_PREFIX = "sentinal-env-"
 _IMAGE_DIR = Path(__file__).resolve().parent / "env_image"
+_DEMO_DIR = Path(__file__).resolve().parent / "demo_assets"
 
 
 class EnvironmentError(RuntimeError):
@@ -69,6 +70,21 @@ class EnvironmentManager:
             raise EnvironmentError(f"docker run failed: {result.stderr.strip()}")
         logger.info("created environment %s", name)
         return name
+
+    def seed_demo(self, project_id: str) -> None:
+        """Copies the demo server + traffic generator into one project's
+        container (not baked into the base image — only a demo project gets
+        them). Lands at /opt/demo_server.py and /opt/traffic.py."""
+        name = self.container_name(project_id)
+        for asset in ("demo_server.py", "traffic.py"):
+            src = _DEMO_DIR / asset
+            result = subprocess.run(
+                [self.docker_bin, "cp", str(src), f"{name}:/opt/{asset}"],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                raise EnvironmentError(f"docker cp {asset} failed: {result.stderr.strip()}")
+        logger.info("seeded demo assets into %s", name)
 
     def destroy(self, project_id: str) -> None:
         subprocess.run(

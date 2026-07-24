@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { listProjects } from '../lib/core'
+import { createProject, listProjects } from '../lib/core'
 
 // The single-pane view of every running sentinel. Polls the core so a project
 // shows up here the moment its environment starts, with a live alert tally.
@@ -23,8 +23,24 @@ export default function Overview() {
     }
   }, [])
 
+  const [loadingDemo, setLoadingDemo] = useState(false)
   const running = projects.filter((p) => p.running).length
   const totalAlerts = projects.reduce((n, p) => n + (p.alert_count || 0), 0)
+  const existingDemo = projects.find((p) => p.is_demo)
+
+  async function loadDemo() {
+    if (existingDemo) {
+      navigate(`/environments?p=${existingDemo.id}`)
+      return
+    }
+    setLoadingDemo(true)
+    try {
+      const p = await createProject('demo', true)
+      navigate(`/environments?p=${p.id}`)
+    } finally {
+      setLoadingDemo(false)
+    }
+  }
 
   return (
     <main className="max-w-[1440px] mx-auto px-gutter pt-24 pb-16">
@@ -35,12 +51,21 @@ export default function Overview() {
             {reachable ? `${running} running · ${totalAlerts} alerts` : 'core backend unreachable'}
           </p>
         </div>
-        <button
-          onClick={() => navigate('/environments')}
-          className="bg-primary text-black font-label-caps text-label-caps rounded-lg px-4 py-2"
-        >
-          + New environment
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={loadDemo}
+            disabled={loadingDemo}
+            className="border border-primary text-primary font-label-caps text-label-caps rounded-lg px-4 py-2 disabled:opacity-50"
+          >
+            {loadingDemo ? 'Provisioning…' : existingDemo ? 'Open demo' : 'Load demo project'}
+          </button>
+          <button
+            onClick={() => navigate('/environments')}
+            className="bg-primary text-black font-label-caps text-label-caps rounded-lg px-4 py-2"
+          >
+            + New environment
+          </button>
+        </div>
       </div>
 
       {projects.length === 0 ? (

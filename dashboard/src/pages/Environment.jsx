@@ -116,6 +116,7 @@ export default function Environment() {
 function Workspace({ project, onDelete }) {
   const [alerts, setAlerts] = useState([])
   const [monitoring, setMonitoring] = useState(null)
+  const [dangerOnly, setDangerOnly] = useState(false)
   const alertWs = useRef(null)
 
   useEffect(() => {
@@ -135,8 +136,20 @@ function Workspace({ project, onDelete }) {
   // onOutput must be stable so the server pane's effect doesn't re-run.
   const noop = useRef(() => {}).current
 
+  const dangerCount = alerts.filter((a) => a.type === 'attack').length
+  const shown = dangerOnly ? alerts.filter((a) => a.type === 'attack') : alerts
+
   return (
     <div>
+      {project.is_demo && (
+        <div className="mb-4 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
+          <span className="font-bold text-primary">Demo project.</span> In the{' '}
+          <span className="text-on-surface">Server</span> terminal run{' '}
+          <code className="text-primary">python3 /opt/demo_server.py</code>, then in{' '}
+          <span className="text-on-surface">Tests</span> run{' '}
+          <code className="text-primary">python3 /opt/traffic.py</code> — watch the alert feed below light up.
+        </div>
+      )}
       <header className="flex items-center justify-between mb-4">
         <div>
           <h2 className="font-headline-sm text-headline-sm font-bold">{project.name}</h2>
@@ -169,16 +182,29 @@ function Workspace({ project, onDelete }) {
       </div>
 
       <div className="mt-6">
-        <div className="font-label-caps text-label-caps text-on-surface-variant mb-2">
-          Live monitoring alerts ({alerts.length})
+        <div className="flex items-center justify-between mb-2">
+          <span className="font-label-caps text-label-caps text-on-surface-variant">
+            Live monitoring alerts ({shown.length}{dangerOnly ? ' danger' : ''})
+          </span>
+          <button
+            onClick={() => setDangerOnly((v) => !v)}
+            className={`flex items-center gap-2 text-xs px-3 py-1 rounded-full border transition-colors ${
+              dangerOnly ? 'border-red-500/60 bg-red-500/10 text-red-300' : 'border-white/10 text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${dangerOnly ? 'bg-red-400' : 'bg-white/30'}`} />
+            Danger only{dangerCount ? ` (${dangerCount})` : ''}
+          </button>
         </div>
         <div className="bg-white/[0.03] border border-white/10 rounded-lg divide-y divide-white/5 max-h-64 overflow-y-auto">
-          {alerts.length === 0 && (
+          {shown.length === 0 && (
             <p className="text-sm text-on-surface-variant p-4">
-              No anomalies yet. Run a server on the left and hit it from the right.
+              {dangerOnly
+                ? 'No danger alerts. Attacks (SQLi/XSS/traversal/…) will show here.'
+                : 'No anomalies yet. Run a server on the left and hit it from the right.'}
             </p>
           )}
-          {alerts.map((a, i) => (
+          {shown.map((a, i) => (
             <div key={i} className="flex items-start gap-3 p-3 text-sm">
               <span
                 className={`shrink-0 mt-0.5 px-2 py-0.5 rounded text-xs font-bold ${

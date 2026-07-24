@@ -12,6 +12,7 @@ a thread executor and never blocks the event loop.
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
 import re
 import time
@@ -57,7 +58,13 @@ class LiveMonitor:
         self._lock = asyncio.Lock()
         self._warmup_remaining = _WARMUP_LINES
         self.alert_count = 0
+        self._recent: collections.deque = collections.deque(maxlen=100)  # replayed to reconnecting dashboards
         self._init_pipeline()
+
+    def recent(self) -> list[dict]:
+        """Recent alerts, oldest first — replayed to a newly connected alerts
+        websocket so navigating back to a project doesn't show an empty feed."""
+        return list(self._recent)
 
     def _init_pipeline(self) -> None:
         try:
@@ -128,6 +135,7 @@ class LiveMonitor:
 
     async def _emit(self, alert: dict) -> None:
         self.alert_count += 1
+        self._recent.append(alert)
         for q in list(self._subscribers):
             try:
                 q.put_nowait(alert)

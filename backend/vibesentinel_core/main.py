@@ -48,9 +48,10 @@ _envs = EnvironmentManager()
 
 
 class Project:
-    def __init__(self, project_id: str, name: str):
+    def __init__(self, project_id: str, name: str, is_demo: bool = False):
         self.id = project_id
         self.name = name
+        self.is_demo = is_demo
         self.monitor = LiveMonitor(project_id)
 
     def as_dict(self) -> dict:
@@ -60,6 +61,7 @@ class Project:
             "running": _envs.is_running(self.id),
             "monitoring": self.monitor.enabled,
             "alert_count": self.monitor.alert_count,
+            "is_demo": self.is_demo,
         }
 
 
@@ -68,7 +70,7 @@ _projects: dict[str, Project] = {}
 
 def _save_projects() -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    data = [{"id": p.id, "name": p.name} for p in _projects.values()]
+    data = [{"id": p.id, "name": p.name, "demo": p.is_demo} for p in _projects.values()]
     STATE_FILE.write_text(json.dumps(data, indent=2))
 
 
@@ -86,35 +88,44 @@ def _restore_projects() -> None:
         return
     for entry in saved:
         pid = entry["id"]
+        is_demo = entry.get("demo", False)
         try:
             _envs.ensure_image()
             _envs.create(pid)  # idempotent: reuses a live container, recreates a gone one
+            if is_demo:
+                _envs.seed_demo(pid)  # re-copy demo assets in case the container was recreated
         except EnvironmentError:
             logger.exception("could not restore environment for %s", pid)
             continue
-        _projects[pid] = Project(pid, entry.get("name", pid))
+        _projects[pid] = Project(pid, entry.get("name", pid), is_demo=is_demo)
         logger.info("restored project id=%s", pid)
 
 
 class CreateProject(BaseModel):
     name: str | None = None
+    demo: bool = False  # seed this one project with the demo server + traffic generator
 
 
 @app.post("/api/projects")
 def create_project(body: CreateProject) -> dict:
-    project_id = slugify(body.name) if body.name else new_id()
+    default_name = "demo" if body.demo else None
+    name = body.name or default_name
+    project_id = slugify(name) if name else new_id()
     if project_id in _projects:
         # name collision — fall back to a generated id so the user still gets one
         project_id = new_id()
     try:
         _envs.ensure_image()
         _envs.create(project_id)
+        if body.demo:
+            _envs.seed_demo(project_id)
     except EnvironmentError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    project = Project(project_id, body.name or project_id)
+    project = Project(project_id, name or project_id)
+    project.is_demo = body.demo
     _projects[project_id] = project
     _save_projects()
-    logger.info("project created id=%s name=%r", project_id, project.name)
+    logger.info("project created id=%s name=%r demo=%s", project_id, project.name, body.demo)
     return project.as_dict()
 
 
@@ -203,6 +214,8 @@ async def alerts(ws: WebSocket, project_id: str) -> None:
         return
     queue = project.monitor.subscribe()
     await ws.send_json({"type": "status", "monitoring": project.monitor.enabled})
+    for past in project.monitor.recent():  # replay history so the feed isn't empty on reconnect
+        await ws.send_json(past)
     try:
         while True:
             alert = await queue.get()

@@ -12,11 +12,11 @@ export async function listProjects() {
   return res.json()
 }
 
-export async function createProject(name) {
+export async function createProject(name, demo = false) {
   const res = await fetch(`${CORE}/api/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name || null }),
+    body: JSON.stringify({ name: name || null, demo }),
   })
   if (!res.ok) throw new Error(`create project -> ${res.status}`)
   return res.json()
