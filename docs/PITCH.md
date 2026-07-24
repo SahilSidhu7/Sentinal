@@ -71,9 +71,7 @@ Straight talk so you deploy it for the right reasons:
 ## Try it in two minutes
 
 ```bash
-pip install -e "./backend[core]"
-cd dashboard && npm ci && npm run build
-sentinal-core          # open http://localhost:8000
+sentinal core          # open http://localhost:8000
 ```
 
 Click **Load demo project**, run `python3 /opt/demo_server.py` in one terminal and

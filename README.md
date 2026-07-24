@@ -30,10 +30,17 @@ As of v0.3.0 there are **two ways to run Sentinal**:
    single dashboard served on one port.
 
    ```bash
-   pip install -e "./backend[core]"          # FastAPI core + the sentinal-core launcher
-   cd dashboard && npm ci && npm run build    # build the UI (served by the core)
-   sentinal-core                              # http://localhost:8000
+   # Installed the binary? The platform is a subcommand — nothing else to set up:
+   sentinal core                              # http://localhost:8000
    # open http://localhost:8000 → create a project → open its two terminals
+   ```
+
+   From a source checkout instead of the binary:
+
+   ```bash
+   pip install -e "./backend[core]"          # FastAPI core
+   cd dashboard && npm ci && npm run build    # build the UI (served by the core)
+   sentinal core            # or: sentinal-core   (equivalent standalone launcher)
    ```
 
    **Demo project**: click **Load demo project** on the Overview — it spins up a
@@ -45,17 +52,16 @@ As of v0.3.0 there are **two ways to run Sentinal**:
    [`docs/MODEL_STATS.md`](docs/MODEL_STATS.md).
 
    **Does it auto-run on install?** No — the installer sets up the `sentinal`
-   CLI binary; the hosted platform is started on demand with `sentinal-core`
-   (a security tool shouldn't open a listening server without you asking). To
-   keep it running/auto-start on boot, put it under a process manager, e.g.
-   systemd:
+   binary; the hosted platform starts on demand with `sentinal core` (a security
+   tool shouldn't open a listening server without you asking). To keep it
+   running / auto-start on boot, put it under a process manager, e.g. systemd:
 
    ```ini
    # /etc/systemd/system/sentinal-core.service
    [Service]
-   ExecStart=/path/to/.venv/bin/sentinal-core --host 0.0.0.0 --port 8000
-   WorkingDirectory=/path/to/Sentinal/backend
+   ExecStart=/usr/local/bin/sentinal core --host 0.0.0.0 --port 8000
    Restart=always
+   User=youruser
    [Install]
    WantedBy=multi-user.target
    ```

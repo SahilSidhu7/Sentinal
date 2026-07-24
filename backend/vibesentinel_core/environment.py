@@ -11,14 +11,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
-from pathlib import Path
+
+from vibesentinel_core import _resources
 
 logger = logging.getLogger("vibesentinel_core.environment")
 
 ENV_IMAGE = "sentinal/env:latest"
 CONTAINER_PREFIX = "sentinal-env-"
-_IMAGE_DIR = Path(__file__).resolve().parent / "env_image"
-_DEMO_DIR = Path(__file__).resolve().parent / "demo_assets"
 
 
 class EnvironmentError(RuntimeError):
@@ -45,7 +44,7 @@ class EnvironmentManager:
             return
         logger.info("building environment image %s (first run) ...", ENV_IMAGE)
         build = subprocess.run(
-            [self.docker_bin, "build", "-t", ENV_IMAGE, str(_IMAGE_DIR)],
+            [self.docker_bin, "build", "-t", ENV_IMAGE, str(_resources.env_image_dir())],
         )
         if build.returncode != 0:
             raise EnvironmentError(
@@ -77,7 +76,7 @@ class EnvironmentManager:
         them). Lands at /opt/demo_server.py and /opt/traffic.py."""
         name = self.container_name(project_id)
         for asset in ("demo_server.py", "traffic.py"):
-            src = _DEMO_DIR / asset
+            src = _resources.demo_assets_dir() / asset
             result = subprocess.run(
                 [self.docker_bin, "cp", str(src), f"{name}:/opt/{asset}"],
                 capture_output=True, text=True,

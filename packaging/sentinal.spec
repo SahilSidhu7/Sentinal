@@ -42,6 +42,10 @@ datas = [
     (str(ROOT / "model" / "artifacts"), "artifacts"),
     (str(ROOT / "model" / "vibesentinel_model" / "drain3_config.ini"), "vibesentinel_model"),
     (str(ROOT / "dashboard" / "dist"), "dashboard/dist"),
+    # Hosted platform (`sentinal core`) host-side assets — env-image build
+    # context + demo scripts. Resolved via vibesentinel_core._resources.
+    (str(ROOT / "backend" / "vibesentinel_core" / "env_image"), "vibesentinel_core/env_image"),
+    (str(ROOT / "backend" / "vibesentinel_core" / "demo_assets"), "vibesentinel_core/demo_assets"),
 ]
 binaries = []
 hiddenimports = []
@@ -52,7 +56,8 @@ for pkg in ("onnxruntime", "sklearn", "scipy", "drain3", "tokenizers"):
     datas += collect_data_files(pkg)
 for pkg in ("onnxruntime", "sklearn", "scipy", "numpy"):
     binaries += collect_dynamic_libs(pkg)
-for pkg in ("sklearn", "scipy", "onnxruntime", "uvicorn", "drain3"):
+for pkg in ("sklearn", "scipy", "onnxruntime", "uvicorn", "drain3",
+            "vibesentinel_core", "fastapi", "starlette", "websockets"):
     hiddenimports += collect_submodules(pkg)
 
 excludes = [

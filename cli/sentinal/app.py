@@ -787,6 +787,34 @@ def status(target_id: str = typer.Option(...)) -> None:
         typer.echo(f"background monitor: {state} (pid {config.pid})")
 
 
+@app.command()
+def core(
+    host: str = typer.Option("127.0.0.1", help="bind host — use 0.0.0.0 to expose on the network"),
+    port: int = typer.Option(8000, help="port to serve the dashboard + API on"),
+    reload: bool = typer.Option(False, help="auto-reload on code changes (dev/source only)"),
+) -> None:
+    """Starts the hosted management platform: dashboard + API, per-project Linux
+    environments with two browser terminals, and live model monitoring. Open
+    http://<host>:<port> once it's up."""
+    try:
+        import uvicorn
+        from vibesentinel_core.main import app as core_app
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(
+            f"error: hosted platform unavailable ({exc}). "
+            "From a source checkout install it with: pip install -e './backend[core]'"
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo(f"sentinal core -> http://{host}:{port}  (Ctrl+C to stop)")
+    if reload:
+        # reload needs an import string so the worker can re-import on change —
+        # source checkouts only (a frozen binary can't re-exec its modules).
+        uvicorn.run("vibesentinel_core.main:app", host=host, port=port, reload=True, log_level="info")
+    else:
+        uvicorn.run(core_app, host=host, port=port, log_level="info")
+
+
 def main() -> None:
     app()
 

@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from vibesentinel_core import _resources
 from vibesentinel_core.environment import EnvironmentError, EnvironmentManager
 from vibesentinel_core.ids import new_id, slugify
 from vibesentinel_core.monitor import LiveMonitor
@@ -30,8 +31,9 @@ from vibesentinel_core.monitor import LiveMonitor
 # Where the project list is persisted so environments survive a backend restart
 # (the Docker containers themselves already outlive the process).
 STATE_FILE = Path.home() / ".sentinal" / "core_projects.json"
-# Built dashboard, if present — lets one port (:8000) serve UI + API together.
-_DASHBOARD_DIST = Path(__file__).resolve().parents[2] / "dashboard" / "dist"
+# Built dashboard, if present — lets one port serve UI + API together. Resolved
+# through _resources so it works from a source checkout and a frozen binary.
+_DASHBOARD_DIST = _resources.dashboard_dist()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("vibesentinel_core")

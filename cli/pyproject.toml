@@ -1,6 +1,6 @@
 [project]
 name = "sentinal"
-version = "0.3.1"
+version = "0.3.2"
 description = "Sentinal sentinel-agent CLI: launches the monitored container, runs the backend startup scan, streams logs into /model, coordinates IP bans"
 requires-python = ">=3.10"  # no 3.11-only syntax/stdlib used; 3.10 covers Ubuntu 22.04 LTS's default python3
 dependencies = [
@@ -9,7 +9,7 @@ dependencies = [
     "httpx>=0.27",
     "watchdog>=4.0",
     "fastapi>=0.111",
-    "uvicorn>=0.30",
+    "uvicorn[standard]>=0.30",  # [standard] pulls websockets — needed for `sentinal core` terminal/alert sockets
     "pydantic>=2.7",
 ]
 # vibesentinel-model and vibesentinel-scanner are installed separately
