@@ -6,9 +6,6 @@ import { useAuth } from '../lib/auth'
 const TABS = [
   { to: '/overview', label: 'Overview', icon: 'dashboard' },
   { to: '/environments', label: 'Environments', icon: 'terminal' },
-  { to: '/activity', label: 'Activity', icon: 'analytics' },
-  { to: '/security', label: 'Security', icon: 'shield' },
-  { to: '/containers', label: 'Containers', icon: 'grid_view' },
   { to: '/docs', label: 'Docs', icon: 'menu_book' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
 ]

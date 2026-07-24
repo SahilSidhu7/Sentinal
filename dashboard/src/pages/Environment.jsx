@@ -166,22 +166,26 @@ function Workspace({ project, onDelete }) {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-4 h-[52vh]">
-        <div className="flex flex-col">
+      <div className="grid grid-cols-2 gap-4 h-[52vh] min-h-[280px]">
+        <div className="flex flex-col min-h-0">
           <div className="font-label-caps text-label-caps text-on-surface-variant mb-1">Server · monitored</div>
-          <div className="flex-1 min-h-0">
-            <TerminalPane url={terminalURL(project.id, 'server')} onOutput={noop} />
+          <div className="flex-1 min-h-0 relative overflow-hidden rounded-lg">
+            <div className="absolute inset-0">
+              <TerminalPane url={terminalURL(project.id, 'server')} onOutput={noop} />
+            </div>
           </div>
         </div>
-        <div className="flex flex-col">
+        <div className="flex flex-col min-h-0">
           <div className="font-label-caps text-label-caps text-on-surface-variant mb-1">Tests</div>
-          <div className="flex-1 min-h-0">
-            <TerminalPane url={terminalURL(project.id, 'tests')} />
+          <div className="flex-1 min-h-0 relative overflow-hidden rounded-lg">
+            <div className="absolute inset-0">
+              <TerminalPane url={terminalURL(project.id, 'tests')} />
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 relative">
         <div className="flex items-center justify-between mb-2">
           <span className="font-label-caps text-label-caps text-on-surface-variant">
             Live monitoring alerts ({shown.length}{dangerOnly ? ' danger' : ''})

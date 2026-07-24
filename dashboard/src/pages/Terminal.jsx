@@ -24,7 +24,6 @@ export default function TerminalPane({ url, onOutput }) {
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(hostRef.current)
-    fit.fit()
 
     const ws = new WebSocket(url)
     ws.binaryType = 'arraybuffer'
@@ -33,9 +32,26 @@ export default function TerminalPane({ url, onOutput }) {
       if (ws.readyState === WebSocket.OPEN) ws.send(resizeFrame(term.cols, term.rows))
     }
 
+    const safeFit = () => {
+      // Only fit once the host box has a real size — fitting a 0-height box on
+      // first paint is what let the terminal overflow onto the alerts below.
+      const el = hostRef.current
+      if (!el || el.clientHeight < 20 || el.clientWidth < 20) return
+      try {
+        fit.fit()
+        sendResize()
+      } catch {
+        /* xterm not ready */
+      }
+    }
+    // Fit after layout settles, and again whenever the box resizes.
+    requestAnimationFrame(safeFit)
+    const ro = new ResizeObserver(safeFit)
+    ro.observe(hostRef.current)
+
     ws.onopen = () => {
       term.focus()
-      sendResize()
+      safeFit()
     }
     ws.onmessage = (ev) => {
       const bytes = new Uint8Array(ev.data)
@@ -48,14 +64,11 @@ export default function TerminalPane({ url, onOutput }) {
       if (ws.readyState === WebSocket.OPEN) ws.send(d)
     })
 
-    const onWinResize = () => {
-      fit.fit()
-      sendResize()
-    }
-    window.addEventListener('resize', onWinResize)
+    window.addEventListener('resize', safeFit)
 
     return () => {
-      window.removeEventListener('resize', onWinResize)
+      window.removeEventListener('resize', safeFit)
+      ro.disconnect()
       dataSub.dispose()
       ws.close()
       term.dispose()
