@@ -1,6 +1,6 @@
 [project]
 name = "vibesentinel-model"
-version = "0.3.0"
+version = "0.3.1"
 description = "VibeSentinel local anomaly detection: Drain3 + ONNX MiniLM + Isolation Forest"
 requires-python = ">=3.10"  # no 3.11-only syntax/stdlib used; 3.10 covers Ubuntu 22.04 LTS's default python3
 dependencies = [

@@ -7,4 +7,4 @@ watch live monitoring alerts. The server terminal's output is teed into
 logs in real time — no separate agent, no raw logs leaving the box.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
