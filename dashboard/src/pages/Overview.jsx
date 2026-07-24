@@ -24,6 +24,7 @@ export default function Overview() {
   }, [])
 
   const [loadingDemo, setLoadingDemo] = useState(false)
+  const [error, setError] = useState('')
   const running = projects.filter((p) => p.running).length
   const totalAlerts = projects.reduce((n, p) => n + (p.alert_count || 0), 0)
   const existingDemo = projects.find((p) => p.is_demo)
@@ -34,9 +35,12 @@ export default function Overview() {
       return
     }
     setLoadingDemo(true)
+    setError('')
     try {
       const p = await createProject('demo', true)
       navigate(`/environments?p=${p.id}`)
+    } catch (e) {
+      setError(e.message)
     } finally {
       setLoadingDemo(false)
     }
@@ -67,6 +71,12 @@ export default function Overview() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="mb-6 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+          {error}
+        </div>
+      )}
 
       {projects.length === 0 ? (
         <div className="h-[50vh] flex items-center justify-center text-on-surface-variant">

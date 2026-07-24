@@ -29,8 +29,20 @@ export async function createProject(name, demo = false) {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ name: name || null, demo }),
   })
-  if (!res.ok) throw new Error(`create project -> ${res.status}`)
+  if (!res.ok) throw new Error(await errorDetail(res, 'create project'))
   return res.json()
+}
+
+// Pull the server's `detail` (e.g. the Docker-permission fix) into the thrown
+// error so the UI shows something actionable instead of a bare status code.
+async function errorDetail(res, action) {
+  try {
+    const body = await res.json()
+    if (body && body.detail) return body.detail
+  } catch {
+    /* non-JSON response */
+  }
+  return `${action} -> ${res.status}`
 }
 
 export async function deleteProject(id) {

@@ -153,6 +153,7 @@ def create_project(body: CreateProject, _: None = Depends(require_auth)) -> dict
         # name collision — fall back to a generated id so the user still gets one
         project_id = new_id()
     try:
+        _envs.preflight()
         _envs.ensure_image()
         _envs.create(project_id)
         if body.demo:

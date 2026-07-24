@@ -31,6 +31,35 @@ class EnvironmentManager:
     def container_name(self, project_id: str) -> str:
         return f"{CONTAINER_PREFIX}{project_id}"
 
+    # -- preflight --------------------------------------------------------
+
+    def preflight(self) -> None:
+        """Fails early with an actionable message if Docker isn't usable — the
+        whole platform needs it (environments are containers). Turns the opaque
+        'permission denied on docker.sock' 500 into a clear fix."""
+        try:
+            probe = subprocess.run([self.docker_bin, "ps"], capture_output=True, text=True)
+        except FileNotFoundError:
+            raise EnvironmentError(
+                f"Docker CLI not found ({self.docker_bin!r} not on PATH). Install Docker to run environments."
+            )
+        if probe.returncode == 0:
+            return
+        err = (probe.stderr or "").strip()
+        low = err.lower()
+        if "permission denied" in low and "docker.sock" in low:
+            raise EnvironmentError(
+                "Docker permission denied (/var/run/docker.sock). The user running "
+                "`sentinal core` isn't in the docker group. Fix: "
+                "`sudo usermod -aG docker $USER && newgrp docker`, then restart sentinal core "
+                "(under systemd, add the service user to the docker group)."
+            )
+        if "cannot connect" in low or "is the docker daemon running" in low or "command not found" in low:
+            raise EnvironmentError(
+                "Can't reach the Docker daemon — is Docker installed and running? " + (err or "")
+            )
+        raise EnvironmentError(f"Docker isn't usable: {err or 'docker ps failed'}")
+
     # -- image ------------------------------------------------------------
 
     def ensure_image(self) -> None:
