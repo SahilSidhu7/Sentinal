@@ -15,6 +15,11 @@ core = [
     "uvicorn[standard]>=0.27",
 ]
 
+[project.scripts]
+# One-command launcher for the hosted platform. Needs the [core] extra
+# installed (FastAPI/uvicorn); errors clearly at runtime otherwise.
+sentinal-core = "vibesentinel_core.serve:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

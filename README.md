@@ -9,6 +9,8 @@ dependency for the core loop, and no manual `docker build`/`docker run`.
 
 **Core loop:** `Watch → Scan → Detect → Show → Act`
 
+New here / wondering if it's for you? Read the [**2-minute pitch**](docs/PITCH.md).
+
 Full design: [`docs/SPEC.md`](docs/SPEC.md). What gets checked at startup:
 [`docs/VULNERABILITY_CHECKLIST.md`](docs/VULNERABILITY_CHECKLIST.md). Full
 CLI reference: [`cli/README.md`](cli/README.md). Live model numbers:
@@ -28,17 +30,36 @@ As of v0.3.0 there are **two ways to run Sentinal**:
    single dashboard served on one port.
 
    ```bash
-   pip install -e "./backend[core]"          # FastAPI core
+   pip install -e "./backend[core]"          # FastAPI core + the sentinal-core launcher
    cd dashboard && npm ci && npm run build    # build the UI (served by the core)
-   uvicorn vibesentinel_core.main:app --port 8000   # from /backend
+   sentinal-core                              # http://localhost:8000
    # open http://localhost:8000 → create a project → open its two terminals
    ```
 
-   **Demo project** (ships inside every environment): in the *server* terminal
-   run `python3 /opt/demo_server.py`, in the *tests* terminal run
-   `python3 /opt/traffic.py` — a fake-traffic + attack generator. Watch the
-   live alert feed light up. Measured 100% attack recall / 0 false positives
-   on a 40-request run — see [`docs/MODEL_STATS.md`](docs/MODEL_STATS.md).
+   **Demo project**: click **Load demo project** on the Overview — it spins up a
+   project preloaded with a demo server + attack-traffic generator (not baked
+   into normal environments). In the *server* terminal run
+   `python3 /opt/demo_server.py`, in the *tests* terminal run
+   `python3 /opt/traffic.py`, and watch the alert feed. Measured 100% attack
+   recall / 0 false positives on a 40-request run — see
+   [`docs/MODEL_STATS.md`](docs/MODEL_STATS.md).
+
+   **Does it auto-run on install?** No — the installer sets up the `sentinal`
+   CLI binary; the hosted platform is started on demand with `sentinal-core`
+   (a security tool shouldn't open a listening server without you asking). To
+   keep it running/auto-start on boot, put it under a process manager, e.g.
+   systemd:
+
+   ```ini
+   # /etc/systemd/system/sentinal-core.service
+   [Service]
+   ExecStart=/path/to/.venv/bin/sentinal-core --host 0.0.0.0 --port 8000
+   WorkingDirectory=/path/to/Sentinal/backend
+   Restart=always
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   then `sudo systemctl enable --now sentinal-core`.
 
 ## What's real today
 
