@@ -1,4 +1,7 @@
 """Unit tests for vibesentinel_core's pure logic (no Docker / no model needed)."""
+import pytest
+from fastapi import HTTPException
+
 from vibesentinel_core import ids
 from vibesentinel_core.monitor import _clean, _is_noise
 
@@ -27,3 +30,19 @@ def test_is_noise_filters_prompts_and_short_lines():
     assert _is_noise("ok")
     # a real nginx access line is NOT noise
     assert not _is_noise('127.0.0.1 - - [23/Jul/2026:19:55:44 +0000] "GET / HTTP/1.1" 200 512 "-" "curl"')
+
+
+def test_login_and_token_gate():
+    # importing main is Docker-free (env container creation only runs on startup)
+    from vibesentinel_core import main
+    from vibesentinel_core.main import LoginRequest, login
+
+    # correct password mints the session token; wrong password is rejected
+    assert login(LoginRequest(password=main.ADMIN_PASSWORD))["token"] == main.SESSION_TOKEN
+    with pytest.raises(HTTPException):
+        login(LoginRequest(password="definitely-not-the-password"))
+
+    # the token gate only accepts the live session token
+    assert main._token_ok(main.SESSION_TOKEN)
+    assert not main._token_ok("bogus")
+    assert not main._token_ok("")

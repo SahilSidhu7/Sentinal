@@ -43,6 +43,13 @@ As of v0.3.0 there are **two ways to run Sentinal**:
    sentinal core            # or: sentinal-core   (equivalent standalone launcher)
    ```
 
+   **Login.** The dashboard is gated by an admin password — **`admin`** by
+   default. Change it before exposing the platform on the network:
+   `sentinal core --host 0.0.0.0 --admin-password 'something-strong'` (or set
+   `$SENTINAL_ADMIN_PASSWORD`). The password mints a per-process session token
+   that guards every API call and both terminal/alert websockets — so an open
+   `0.0.0.0` port isn't a free shell into your environments.
+
    **Demo project**: click **Load demo project** on the Overview — it spins up a
    project preloaded with a demo server + attack-traffic generator (not baked
    into normal environments). In the *server* terminal run

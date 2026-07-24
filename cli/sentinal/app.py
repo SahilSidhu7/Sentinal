@@ -791,11 +791,17 @@ def status(target_id: str = typer.Option(...)) -> None:
 def core(
     host: str = typer.Option("127.0.0.1", help="bind host — use 0.0.0.0 to expose on the network"),
     port: int = typer.Option(8000, help="port to serve the dashboard + API on"),
+    admin_password: str = typer.Option(
+        None, help="dashboard login password (default 'admin' or $SENTINAL_ADMIN_PASSWORD) — set one before exposing on 0.0.0.0"
+    ),
     reload: bool = typer.Option(False, help="auto-reload on code changes (dev/source only)"),
 ) -> None:
     """Starts the hosted management platform: dashboard + API, per-project Linux
     environments with two browser terminals, and live model monitoring. Open
-    http://<host>:<port> once it's up."""
+    http://<host>:<port> once it's up (dashboard login password: 'admin' by
+    default, override with --admin-password)."""
+    if admin_password:
+        os.environ["SENTINAL_ADMIN_PASSWORD"] = admin_password  # read at import by vibesentinel_core.main
     try:
         import uvicorn
         from vibesentinel_core.main import app as core_app

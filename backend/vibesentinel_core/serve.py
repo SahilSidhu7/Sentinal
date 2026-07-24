@@ -14,14 +14,19 @@ operator asking.
 from __future__ import annotations
 
 import argparse
+import os
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="sentinal-core", description="VibeSentinel hosted platform (dashboard + API)")
     parser.add_argument("--host", default="127.0.0.1", help="bind host (use 0.0.0.0 to expose on the network)")
     parser.add_argument("--port", type=int, default=8000, help="port to serve the dashboard + API on")
+    parser.add_argument("--admin-password", default=None, help="dashboard login password (default 'admin' or $SENTINAL_ADMIN_PASSWORD)")
     parser.add_argument("--reload", action="store_true", help="auto-reload on code changes (dev only)")
     args = parser.parse_args()
+
+    if args.admin_password:
+        os.environ["SENTINAL_ADMIN_PASSWORD"] = args.admin_password  # read at import by vibesentinel_core.main
 
     import uvicorn
 

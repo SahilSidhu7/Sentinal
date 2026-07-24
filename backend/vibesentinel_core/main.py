@@ -15,9 +15,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -47,6 +49,40 @@ app.add_middleware(
 )
 
 _envs = EnvironmentManager()
+
+# --- auth ----------------------------------------------------------------
+# Single-operator gate, matching the CLI dashboard: one admin password
+# (`$SENTINAL_ADMIN_PASSWORD`, default "admin") mints a per-process session
+# token. Matters most when the platform is bound to 0.0.0.0 on a public box —
+# terminals give a shell into the environment container, so these endpoints
+# must not be open. Not a multi-user auth system; that's the core backend's job.
+ADMIN_PASSWORD = os.environ.get("SENTINAL_ADMIN_PASSWORD", "admin")
+SESSION_TOKEN = secrets.token_urlsafe(32)
+
+
+def require_auth(authorization: str | None = Header(default=None)) -> None:
+    if authorization != f"Bearer {SESSION_TOKEN}":
+        raise HTTPException(status_code=401, detail="not authenticated")
+
+
+def _token_ok(token: str | None) -> bool:
+    return bool(token) and secrets.compare_digest(token, SESSION_TOKEN)
+
+
+class LoginRequest(BaseModel):
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginRequest) -> dict:
+    if not secrets.compare_digest(body.password, ADMIN_PASSWORD):
+        raise HTTPException(status_code=401, detail="incorrect password")
+    return {"token": SESSION_TOKEN}
+
+
+@app.get("/api/auth/verify")
+def verify(_: None = Depends(require_auth)) -> dict:
+    return {"ok": True}
 
 
 class Project:
@@ -109,7 +145,7 @@ class CreateProject(BaseModel):
 
 
 @app.post("/api/projects")
-def create_project(body: CreateProject) -> dict:
+def create_project(body: CreateProject, _: None = Depends(require_auth)) -> dict:
     default_name = "demo" if body.demo else None
     name = body.name or default_name
     project_id = slugify(name) if name else new_id()
@@ -132,12 +168,12 @@ def create_project(body: CreateProject) -> dict:
 
 
 @app.get("/api/projects")
-def list_projects() -> list[dict]:
+def list_projects(_: None = Depends(require_auth)) -> list[dict]:
     return [p.as_dict() for p in _projects.values()]
 
 
 @app.delete("/api/projects/{project_id}")
-def delete_project(project_id: str) -> dict:
+def delete_project(project_id: str, _: None = Depends(require_auth)) -> dict:
     project = _projects.pop(project_id, None)
     if project is None:
         raise HTTPException(status_code=404, detail="unknown project")
@@ -154,8 +190,11 @@ def _require(project_id: str) -> Project:
 
 
 @app.websocket("/api/projects/{project_id}/terminal/{which}")
-async def terminal(ws: WebSocket, project_id: str, which: str) -> None:
+async def terminal(ws: WebSocket, project_id: str, which: str, token: str = "") -> None:
     await ws.accept()
+    if not _token_ok(token):  # browsers can't set WS headers — token rides the query string
+        await ws.close(code=1008)
+        return
     project = _projects.get(project_id)
     if project is None or which not in ("server", "tests"):
         await ws.close(code=1008)
@@ -208,8 +247,11 @@ async def terminal(ws: WebSocket, project_id: str, which: str) -> None:
 
 
 @app.websocket("/api/projects/{project_id}/alerts")
-async def alerts(ws: WebSocket, project_id: str) -> None:
+async def alerts(ws: WebSocket, project_id: str, token: str = "") -> None:
     await ws.accept()
+    if not _token_ok(token):
+        await ws.close(code=1008)
+        return
     project = _projects.get(project_id)
     if project is None:
         await ws.close(code=1008)
